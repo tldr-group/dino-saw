@@ -5,6 +5,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from typing import Literal
 from torchvision import transforms
 from PIL import Image
+import matplotlib.pyplot as plt
 
 NormType = Literal["minmax", "std", None]
 norm_dict = {
@@ -166,3 +167,15 @@ def convert_image(
     if batch:
         tensor = tensor.unsqueeze(0)
     return tensor
+
+
+
+
+def plot_losses(train_loss: list[float], val_loss: list[float], out_path: str) -> None:
+    epochs = np.arange(len(train_loss))
+    plt.semilogy(epochs, train_loss, lw=2, label="train")
+    #plt.semilogy(epochs, val_loss, lw=2, label="val")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
