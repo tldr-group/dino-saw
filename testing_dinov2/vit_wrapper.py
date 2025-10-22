@@ -16,7 +16,7 @@ from timm.models.vision_transformer import VisionTransformer, Attention, Block
 FLASH_ATTN_INSTALLED = False
 try:
     from flash_attn import flash_attn_qkvpacked_func
-
+    print("flash attention installed")
     FLASH_ATTN_INSTALLED = True
 except ImportError:
     pass
@@ -59,7 +59,7 @@ class Patch:
         def forward(
             self: Attention,
             x: torch.Tensor,
-            attn_bias=None,
+            attn_mask=None, #attn_bias=None,
         ) -> torch.Tensor:
             # TODO: attn_bias -> attn_mask in new timm, find way to align these
             B, N, C = x.shape
