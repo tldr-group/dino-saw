@@ -210,3 +210,5 @@ __marimo__/
 Dataset/
 lightning_logs
 models/
+*.pt
+images/
