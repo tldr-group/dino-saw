@@ -34,7 +34,10 @@ loader = torch.utils.data.DataLoader(Dataset(), batch_size=32, num_workers=20, p
 with torch.inference_mode(): 
     res = []
     for batch in tqdm(loader):
-        res.append(vit_wrapper.forward_features(batch.to("cuda", non_blocking=True), make_2D=True).cpu())
+        cleaned_channels = vit_wrapper.forward_features(batch.to("cuda", non_blocking=True), make_2D=True).cpu()
+        cleaned_channels[:,[47, 113, 117, 359], ...] = 0 # setting the channels with positinoal bias to zero
+
+        res.append(cleaned_channels)
         batch.to("cpu")
 
-torch.save(torch.cat(res), "teacher_out.pt")
+torch.save(torch.cat(res), "teacher_out_homo.pt")
