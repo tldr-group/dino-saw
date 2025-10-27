@@ -21,8 +21,8 @@ from vit_wrapper import (
 class Dataset(torch.utils.data.Dataset):
     def __init__(self):
         self.dtype = torch.float32
-        self.imgs = pl.read_parquet('/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/train/*.parquet')
-        self.targets = torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/teacher/teacher_out.pt")
+        self.imgs = pl.read_parquet('/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/train/*.parquet', parallel="row_groups")
+        self.targets = torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/teacher/teacher_out_homo.pt")
 
     def __len__(self):
         return len(self.imgs)
@@ -37,8 +37,8 @@ class Dataset(torch.utils.data.Dataset):
 class DatasetVal(torch.utils.data.Dataset):
     def __init__(self):
         self.dtype = torch.float32
-        self.img = [load_image("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/black_dog.jpg", resize_crop((224,224), (224,224)))[0], load_image("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/black_dog.jpg", resize_crop((224,224), (224,224)))[0]]
-        self.target = [torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/black_dog_target.pt"), torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/black_dog_target.pt")]
+        self.img = [load_image("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/black_dog.jpg", resize_crop((224,224), (224,224)))[0], load_image("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/default_image.jpg", resize_crop((224,224), (224,224)))[0]]
+        self.target = [torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/black_dog_target.pt"), torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/micro_struct_target.pt")]
 
     def __len__(self):
         return len(self.img)
@@ -96,44 +96,7 @@ def vis(model: torch.nn.Module) -> None:
 
 def main():
     loader = torch.utils.data.DataLoader(Dataset(), batch_size=32, num_workers=56, pin_memory=True)
-    val_lodaer = torch.utils.data.DataLoader(DatasetVal(), batch_size=1)
-
-    # vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda").train()
-        
-    # new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
-    # new_pos_embedding
-
-    # del vit.model.pos_embed
-    # vit.model.pos_embed = new_pos_embedding.to("cuda")
-
-    # N_EPOCHS, SAVE_PER = 10, 200
-
-    # opt = torch.optim.Adam(vit.parameters(), lr=1e-3)
-    # from tqdm import tqdm
-    # train_losses, val_losses = [], []
-    # best_val_loss = 1e10
-    # for i in range(N_EPOCHS):
-    #     epoch_loss = 0.0
-    #     for batch in tqdm(loader):
-    #         loss_val = feed_batch_loss(vit, opt, batch)
-    #         epoch_loss += loss_val
-
-    #         if i % SAVE_PER == 0:
-    #             vis(vit)
-
-    #             plot_losses(train_losses, None, "losses.png")
-
-    #     print(f"[{i}/{N_EPOCHS}]: train={epoch_loss:.1f}")
-    #     train_losses.append(epoch_loss)
-
-
-    #     # scheduler.step(val_loss)
-
-    #     # if val_loss < best_val_loss:
-    #     #     obj = {"weights": net.state_dict(), "config": config_from_expriment(expr)}
-    #     #     # todo: just save every 100 epochs?
-    #     #     torch.save(net.state_dict(), f"{OUT_PATH}/best.pth")
-    #     #     best_val_loss = val_loss
+    val_loader = torch.utils.data.DataLoader(DatasetVal(), batch_size=2)
 
     checkpoint_callback = ModelCheckpoint(
         monitor='val_loss',
@@ -142,8 +105,8 @@ def main():
         mode="min"
     )
     
-    trainer = L.Trainer(devices=2, max_epochs=70, gradient_clip_val=1.0, callbacks=checkpoint_callback) #, strategy="ddp"
-    trainer.fit(model=PEModel(), train_dataloaders=loader, val_dataloaders=val_lodaer)
+    trainer = L.Trainer(devices=1, max_epochs=70, gradient_clip_val=1.0, callbacks=checkpoint_callback) #, strategy="ddp"
+    trainer.fit(model=PEModel(), train_dataloaders=loader, val_dataloaders=val_loader)
 
 
 if __name__ == "__main__":
