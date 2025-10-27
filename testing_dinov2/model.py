@@ -1,6 +1,9 @@
 import lightning as L
 from torch import nn, optim
+from torch.nn import functional as F
+import torchvision.transforms.functional as v2
 import torch
+from torchvision.utils import make_grid
 from vit_wrapper import (
     PretrainedViTWrapper,
     MODEL_MAP,
@@ -62,15 +65,32 @@ class PEModel(L.LightningModule):
         output = self.vit.forward_features(input, make_2D=True)
         loss = nn.functional.mse_loss(output, target)
         self.log("val_loss", loss, sync_dist=True)
-        self.visualize(input, output)
+        
+        tensorboard = self.logger.experiment
+        #self.visualize(input, output)
+        tensorboard.add_image("intermediate_output", self.gen_vis_grid(input, output, target), self.current_epoch)
         return loss
     
     def forward(self, input):
         return self.vit.forward_features(input, make_2D=True)
     
+    def gen_vis_grid(self, input, output, target):
+        res = []
+        for input, output, target in zip(input, output, target):
+            orig = F.normalize(input.to("cpu").squeeze())
+            pred = v2.resize(torch.tensor(do_2D_pca(output.to("cpu").squeeze(), n_components=3, post_norm="minmax")).transpose(0,2).transpose(1,2), input.shape[-2:-1])
+            target = v2.resize(torch.tensor(do_2D_pca(target.to("cpu").squeeze(), n_components=3, post_norm="minmax")).transpose(0,2).transpose(1,2), input.shape[-2:-1])
+            res.append(torch.stack([orig, pred, target]))
+        res = torch.concat(res, dim=0)
+        return make_grid(
+            res,
+            3
+        )
+
     def visualize(self, img, prediction):
         fig, axes = plt.subplots(1,2)
         x=0
+        imgs = []
         for ax, img in zip(axes.ravel(), [img.to("cpu").squeeze(), prediction.to("cpu").squeeze()]):
             if x ==1:
                 img = do_2D_pca(img, n_components=3, post_norm="minmax")
@@ -85,5 +105,5 @@ class PEModel(L.LightningModule):
         plt.close()
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=1e-5)
+        optimizer = optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
