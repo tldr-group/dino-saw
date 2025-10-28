@@ -13,6 +13,7 @@ from vit_wrapper import (
 import matplotlib.pyplot as plt
 from utils import do_2D_pca
 import numpy as np
+from overwriting_methods import _pos_embed_no_pos
 
 def get_sinusoid_encoding(num_tokens, token_len):
     """ Make Sinusoid Encoding Table
@@ -40,11 +41,14 @@ class PEModel(L.LightningModule):
     def configure_model(self):
         self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda").train()
         
-        new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
-        new_pos_embedding
-        device = torch.get_device(self.vit.model.pos_embed)
-        del self.vit.model.pos_embed
-        self.vit.model.pos_embed = new_pos_embedding.to(device)
+        # new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
+        # new_pos_embedding
+        # device = torch.get_device(self.vit.model.pos_embed)
+        # del self.vit.model.pos_embed
+        # self.vit.model.pos_embed = new_pos_embedding.to(device)
+
+        import types
+        self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
 
 
     def training_step(self, batch):
