@@ -5,6 +5,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from utils import convert_image, to_norm_tensor
 from tqdm import tqdm
+from translation import translate
 
 torch.cuda.empty_cache()
 
@@ -28,16 +29,17 @@ from vit_wrapper import (
     MODEL_LIST,
 )
 
-vit_wrapper = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=True, device="cuda")
 
-loader = torch.utils.data.DataLoader(Dataset(), batch_size=32, num_workers=20, pin_memory=True)
+vit_wrapper = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda")
+
+loader = torch.utils.data.DataLoader(Dataset(), batch_size=1, num_workers=20, pin_memory=True)
 with torch.inference_mode(): 
     res = []
-    for batch in tqdm(loader):
-        cleaned_channels = vit_wrapper.forward_features(batch.to("cuda", non_blocking=True), make_2D=True).cpu()
-        cleaned_channels[:,[47, 113, 117, 359], ...] = 0 # setting the channels with positinoal bias to zero
+    for image in tqdm(loader):
+        #cleaned_channels = vit_wrapper.forward_features(batch.to("cuda", non_blocking=True), make_2D=True).cpu()
+        #cleaned_channels[:,[47, 113, 117, 359], ...] = 0 # setting the channels with positinoal bias to zero
 
-        res.append(cleaned_channels)
-        batch.to("cpu")
+        res.append(translate(vit_wrapper, image.to("cuda", non_blocking=True), factor=1, show_progress=False))
+        image.to("cpu")
 
-torch.save(torch.cat(res), "teacher_out_homo.pt")
+torch.save(torch.cat(res), "teacher_out_trans_homo.pt")
