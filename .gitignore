@@ -209,7 +209,7 @@ __marimo__/
 # Moritz
 Dataset/
 lightning_logs
-models/
+trained_models/
 *.pt
 images/
 .vscode/
