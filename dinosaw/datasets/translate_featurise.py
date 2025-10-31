@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 def get_shifts(h: int, w: int, step: int, mult: int) -> list[tuple[int, int]]:
     """Get all shifts for image (h,w) and $step i.e for (h,w)=28 & step=14 -> [(0,0), (0,14), ..., (0,28), ...]"""
     shifts: list[tuple[int, int]] = []
-    for y in range(0, h + step * mult, step * mult):
-        for x in range(0, w + step * mult, step * mult):
+    for y in range(0, h, step * mult):
+        for x in range(0, w, step * mult):
             shifts.append((y, x))
     return shifts
 
@@ -46,13 +46,14 @@ def invert_shifts_and_average(
     feats_batch: torch.Tensor, shifts: list[tuple[int, int]], patch_size: int
 ) -> torch.Tensor:
     """Invert shifts in feature space (image space // patch_size), and average. Return (1,C,N_th,N_tw) tensor."""
-    b, c, n_th, n_tw = feats_batch.shape
-    sum_tensor = torch.zeros((1, c, n_th, n_tw), device=feats_batch.device)
+    b, _, _, _ = feats_batch.shape
+    inverted: list[torch.Tensor] = []
     for i, shift in enumerate(shifts):
         y_shift, x_shift = shift
         inverted_feat = torch.roll(feats_batch[i], shifts=(-y_shift // patch_size, -x_shift // patch_size), dims=(1, 2))
-        sum_tensor += inverted_feat.unsqueeze(0)
-    return sum_tensor / b
+        inverted.append(inverted_feat)
+    stacked = torch.stack(inverted, dim=0)
+    return torch.sum(stacked, dim=0, keepdim=True, dtype=torch.float64) / b
 
 
 @torch.no_grad()
@@ -78,22 +79,25 @@ if __name__ == "__main__":
     DEVICE = "cuda:1"
 
     tr = closest_crop(518, 518, 14)
-    img_tensor, _ = load_image("images/bulldog_518.png", tr, True, True, device_str=DEVICE)
+    img_tensor, _ = load_image("images/default_image_518.png", tr, True, True, device_str=DEVICE)
+    img_tensor = torch.zeros_like(img_tensor).half()
 
     dv2 = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=True, device=DEVICE)
-    dv2 = dv2.eval()
-    translated_feats = translate_featurise(img_tensor, dv2, step=14, mult=1, max_batch_size=128, device=DEVICE)
+    translated_feats = translate_featurise(img_tensor, dv2, step=14, mult=1, max_batch_size=16, device=DEVICE)
     translated_feats = translated_feats.to("cpu")
 
     translated_feats_np = to_numpy(translated_feats)
-    reduced = do_2D_pca(translated_feats_np, 3, pre_norm="std", post_norm="minmax")
+    c, h, w = translated_feats_np.shape
+
+    reduced = do_2D_pca(translated_feats_np, 3, post_norm="minmax")
 
     c, n_th, n_tw = translated_feats_np.shape
 
-    ramp = get_ramp("radial", n_th, n_tw)
-    sample_mask = gen_sample_mask((n_th, n_tw), step=4, cutoff_frac=0.7)
+    ramp = get_ramp("lr", n_th, n_tw)
+    sample_mask = gen_sample_mask((n_th, n_tw), step=5, cutoff_frac=0.7)
     pred, r_sq = linear_probe(translated_feats_np, ramp, sample_mask)
 
+    plt.imsave("tmp/translate_avg_pca.png", reduced)
     plt.imsave("tmp/homog_probe.png", pred)
     print(r_sq)
 
