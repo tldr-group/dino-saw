@@ -213,4 +213,5 @@ models/
 *.pt
 images/
 .vscode/
-feats/
+features/
+archive/
