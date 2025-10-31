@@ -4,16 +4,14 @@ from torch.nn import functional as F
 import torchvision.transforms.functional as v2
 import torch
 from torchvision.utils import make_grid
-from vit_wrapper import (
+from dinosaw.models.vit_wrapper import (
     PretrainedViTWrapper,
-    MODEL_MAP,
-    FeatureType,
     MODEL_LIST,
 )
 import matplotlib.pyplot as plt
-from utils import do_2D_pca
+from dinosaw.utils import do_2D_pca
 import numpy as np
-from overwriting_methods import _pos_embed_no_pos
+from .overwriting_methods import _pos_embed_no_pos
 
 def get_sinusoid_encoding(num_tokens, token_len):
     """ Make Sinusoid Encoding Table
