@@ -1,16 +1,16 @@
 import lightning as L
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
 from torch import nn, optim
 from torch.nn import functional as F
-import torchvision.transforms.functional as v2
-import torch
 from torchvision.utils import make_grid
+import torchvision.transforms.functional as v2
 from dinosaw.models.vit_wrapper import (
     PretrainedViTWrapper,
     MODEL_LIST,
 )
-import matplotlib.pyplot as plt
 from dinosaw.utils import do_2D_pca
-import numpy as np
 from .overwriting_methods import _pos_embed_no_pos
 
 def get_sinusoid_encoding(num_tokens, token_len):
@@ -92,7 +92,6 @@ class PEModel(L.LightningModule):
     def visualize(self, img, prediction):
         fig, axes = plt.subplots(1,2)
         x=0
-        imgs = []
         for ax, img in zip(axes.ravel(), [img.to("cpu").squeeze(), prediction.to("cpu").squeeze()]):
             if x ==1:
                 img = do_2D_pca(img, n_components=3, post_norm="minmax")
