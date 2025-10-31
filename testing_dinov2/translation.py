@@ -155,7 +155,7 @@ def batched_translate_and_predict(model, img, x_step, y_step, scale_factor=14, d
     # optional: move to cpu if you need
     return batched_res
 
-def translate(model, img, factor=4):
+def translate(model, img, factor=4, show_progress=True):
     from tqdm import tqdm
 
     from itertools import batched
@@ -182,8 +182,13 @@ def translate(model, img, factor=4):
     #     #print("time until_res_add", time.perf_counter() - start)
     #     #print(intermediate.shape)
 
-    for x, y in tqdm(zip(x_steps.flatten().astype(int), y_steps.flatten().astype(int))):
-        #print(res.shape, translate_14(img, x_step=int(x), y_step=int(y)).)
-        res += translate_14(model, img, x_step=int(x), y_step=int(y))#.cpu()
+    if show_progress:
+        for x, y in tqdm(zip(x_steps.flatten().astype(int), y_steps.flatten().astype(int))):
+            #print(res.shape, translate_14(img, x_step=int(x), y_step=int(y)).)
+            res += translate_14(model, img, x_step=int(x), y_step=int(y))#.cpu()
+    else:
+        for x, y in zip(x_steps.flatten().astype(int), y_steps.flatten().astype(int)):
+            #print(res.shape, translate_14(img, x_step=int(x), y_step=int(y)).)
+            res += translate_14(model, img, x_step=int(x), y_step=int(y))#.cpu()
     mean_res = res/x_steps.flatten().shape[0]
     return mean_res
