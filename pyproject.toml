@@ -40,7 +40,7 @@ paper = []
 "Bug Tracker" = "https://github.com/tldr-group/dino-saw/issues"
 
 [tool.setuptools]
-packages = ["dinosaw", "dinosaw.models", "dinosaw.dataset"]
+packages = ["dinosaw", "dinosaw.models", "dinosaw.datasets"]
 
 [tool.uv.sources]
 torch = [
