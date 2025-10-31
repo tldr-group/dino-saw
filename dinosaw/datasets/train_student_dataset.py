@@ -1,0 +1,34 @@
+import torch
+import polars as pl
+from PIL import Image
+import io
+from dinosaw.utils import convert_image, to_norm_tensor, load_image, resize_crop
+
+
+class DatasetTrainStudent(torch.utils.data.Dataset):
+    def __init__(self):
+        self.dtype = torch.float32
+        self.imgs = pl.read_parquet('/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/train/*.parquet', parallel="row_groups")
+        self.targets = torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/teacher/teacher_out_homo.pt")
+
+    def __len__(self):
+        return len(self.imgs)
+
+    def __getitem__(self, index):
+        img_bytes = self.imgs.row(index)[0]["bytes"]
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        target = self.targets[index, ::]
+
+        return convert_image(img, to_norm_tensor, device_str="cpu").squeeze().to(self.dtype), target.to(self.dtype)
+    
+class DatasetValStudent(torch.utils.data.Dataset):
+    def __init__(self):
+        self.dtype = torch.float32
+        self.img = [load_image("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/black_dog.jpg", resize_crop((224,224), (224,224)))[0], load_image("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/default_image.jpg", resize_crop((224,224), (224,224)))[0]]
+        self.target = [torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/black_dog_target.pt"), torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/val/micro_struct_target.pt")]
+
+    def __len__(self):
+        return len(self.img)
+    
+    def __getitem__(self, index):
+        return self.img[index].squeeze().to(self.dtype), self.target[index].to(self.dtype)
