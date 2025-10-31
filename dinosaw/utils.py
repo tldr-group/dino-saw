@@ -1,11 +1,16 @@
 import torch
 import numpy as np
+
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from typing import Literal
+from sklearn.linear_model import LinearRegression
+
 from torchvision import transforms
+
+import time
 from PIL import Image
 import matplotlib.pyplot as plt
+from typing import Literal
 
 
 ### Work from Ronan
@@ -303,8 +308,6 @@ def translate_14(model, img, x_step, y_step, plot:bool=False):
 
         return un_ten
 
-
-import time
 def batched_translate_and_predict(model, img, x_step, y_step, scale_factor=14, device="cuda"):
     # ensure img has batch dim
     if img.dim() == 3:
@@ -382,7 +385,7 @@ def translate(model, img, factor=4, show_progress=True):
 
 # =========================== linear probing ==================================
 
-def get_ramp(dir: Literal['lr', 'ud', 'diag', 'radial'], h, w) -> np.ndarray:
+def get_ramp(dir: Literal['lr', 'ud', 'diag', 'radial'], h: int, w: int) -> np.ndarray:
     """Generate a ramp mask in the specified direction."""
     if dir == 'lr':
         return np.tile(np.linspace(0, 1, w), (h, 1))
@@ -400,11 +403,16 @@ def get_ramp(dir: Literal['lr', 'ud', 'diag', 'radial'], h, w) -> np.ndarray:
         raise ValueError("Direction must be 'lr', 'ud', or 'diag'.")
 
 
-def gen_sample_mask(shape: tuple[int, int], step: int = 4, cutoff_frac: float=1.0) -> np.ndarray:
+def gen_sample_mask(shape: tuple[int, int], step: int = 4, cutoff_frac: float | tuple[float, float]=1.0) -> np.ndarray:
     """Generate a sampling mask for an array, taking every `step`-th element."""
-    cutoff_y, cutoff_x = int(shape[0] * cutoff_frac), int(shape[1] * cutoff_frac)
     mask = np.zeros(shape, dtype=bool)
-    mask[0:cutoff_y:step, 0:cutoff_x:step] = True
+    if isinstance(cutoff_frac, tuple):
+        cutoff_x0, cutoff_y0 = int(shape[0] * cutoff_frac[0]), int(shape[1] * cutoff_frac[0])
+        cutoff_x1, cutoff_y1 = int(shape[0] * cutoff_frac[1]), int(shape[1] * cutoff_frac[1])
+        mask[cutoff_y0:cutoff_y1:step, cutoff_x0:cutoff_x1:step] = True
+    else:
+        cutoff_y, cutoff_x = int(shape[0] * cutoff_frac), int(shape[1] * cutoff_frac)
+        mask[0:cutoff_y:step, 0:cutoff_x:step] = True
     return mask
 
 
@@ -424,7 +432,16 @@ def linear_probe(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray)
     score = model.score(X_full, target.flatten())  # R^2 score on training data
     return y_pred.reshape(h, w), float(score)
 
-
+def probe_stack(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) -> tuple[np.ndarray, list[float]]:
+    preds = np.zeros_like(feats)
+    scores: list[float] = []
+    c, _, _ = feats.shape
+    for i in range(c):
+        ch_feat = feats[i:i+1, :, :]
+        pred, score = linear_probe(ch_feat, target, sample_mask)
+        preds[i, :, :] = pred
+        scores.append(score)
+    return preds, scores
 
 def probe(input_preds: list, remove_channels: list, titles: list, ramp='diag', mask_step=6, mask_cutoff_frac=0.8):
     input_preds_, remove_channels_, titles_ = input_preds.copy(), remove_channels.copy(), titles.copy()
