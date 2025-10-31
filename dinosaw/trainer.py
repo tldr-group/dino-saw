@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 from utils import convert_image, to_norm_tensor, load_image, resize_crop, do_2D_pca, plot_losses
 from PIL import Image
 import io
-from model import PEModel, get_sinusoid_encoding
+from models.lightning_model import PEModel, get_sinusoid_encoding
 from torch import nn, optim
 import torch
-from vit_wrapper import (
+from models.vit_wrapper import (
     PretrainedViTWrapper,
     MODEL_MAP,
     FeatureType,
@@ -47,52 +47,52 @@ class DatasetVal(torch.utils.data.Dataset):
         return self.img[index].squeeze().to(self.dtype), self.target[index].to(self.dtype)
     
     
-def feed_batch_loss(model, opt, batch):
-    model.train()
-    opt.zero_grad()
+# def feed_batch_loss(model, opt, batch):
+#     model.train()
+#     opt.zero_grad()
 
-    input, target = batch
-    input, target = (
-        input.to("cuda").to(torch.float32),
-        target.to("cuda").to(torch.float32)
-    )
-    output = model.forward_features(input, make_2D=True)
+#     input, target = batch
+#     input, target = (
+#         input.to("cuda").to(torch.float32),
+#         target.to("cuda").to(torch.float32)
+#     )
+#     output = model.forward_features(input, make_2D=True)
 
-    loss = torch.nn.functional.mse_loss(output, target)
+#     loss = torch.nn.functional.mse_loss(output, target)
 
-    loss.backward()
+#     loss.backward()
 
-    opt.step()
+#     opt.step()
 
-    input, target, output = (
-        input.to("cpu"),
-        target.to("cpu"),
-        output.to("cpu")
-    )
+#     input, target, output = (
+#         input.to("cpu"),
+#         target.to("cpu"),
+#         output.to("cpu")
+#     )
 
-    return loss.item()
+#     return loss.item()
 
-def vis(model: torch.nn.Module) -> None:
-    img = load_image("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/black_dog.jpg", resize_crop((224,224), (224,224)))[0]
-    img = img.to("cuda").to(torch.float32)
+# def vis(model: torch.nn.Module) -> None:
+#     img = load_image("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/black_dog.jpg", resize_crop((224,224), (224,224)))[0]
+#     img = img.to("cuda").to(torch.float32)
 
-    model.eval()
-    output = model.forward_features(img, make_2D=True).squeeze()
+#     model.eval()
+#     output = model.forward_features(img, make_2D=True).squeeze()
 
-    fig, axes = plt.subplots(1,2)
-    x=0
-    for ax, img in zip(axes.ravel(), [img.to("cpu").squeeze(), output.to("cpu").squeeze()]):
-        if x ==1:
-            img = do_2D_pca(img, n_components=3, post_norm="minmax")
-            ax.imshow(img)
-        else:
-            img = (img - img.min()) / (img.max()-img.min())
-            ax.imshow(img.transpose(0,2).transpose(0,1).float())
-        x+=1
+#     fig, axes = plt.subplots(1,2)
+#     x=0
+#     for ax, img in zip(axes.ravel(), [img.to("cpu").squeeze(), output.to("cpu").squeeze()]):
+#         if x ==1:
+#             img = do_2D_pca(img, n_components=3, post_norm="minmax")
+#             ax.imshow(img)
+#         else:
+#             img = (img - img.min()) / (img.max()-img.min())
+#             ax.imshow(img.transpose(0,2).transpose(0,1).float())
+#         x+=1
 
         
-    fig.savefig("test.png")
-    plt.close()
+#     fig.savefig("test.png")
+#     plt.close()
 
 def main():
     loader = torch.utils.data.DataLoader(Dataset(), batch_size=32, num_workers=56, pin_memory=True)
