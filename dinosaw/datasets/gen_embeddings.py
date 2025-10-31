@@ -15,12 +15,12 @@ from time import time
 DEVICE = "cuda:1"
 NAME = "IN_reduced"
 IMG_L = 224
-SPLIT: Literal["train", "val"] = "train"
+N_VAL = 2600
 
 np.random.seed(10001)
 torch.random.manual_seed(10001)
 
-ds = load_dataset("richwardle/reduced-imagenet", split=SPLIT)
+ds = load_dataset("richwardle/reduced-imagenet", split="train")
 ds = ds.shuffle()
 
 torch.cuda.empty_cache()
@@ -28,7 +28,7 @@ torch.cuda.empty_cache()
 
 for split in ("train", "val"):
     for which in ("imgs", "embeddings"):
-        makedirs(f"Dataset/{split}/{which}/", exist_ok=True)
+        makedirs(f"Dataset/{NAME}_{IMG_L}/{split}/{which}/", exist_ok=True)
 
 dv2 = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=True, device=DEVICE)
 dv2 = dv2.eval()
@@ -47,8 +47,10 @@ for i, dct in enumerate(ds):
     translated_feats = translate_featurise(img_tensor, dv2, step=14, mult=1, max_batch_size=128, device=DEVICE)
     translated_feats = translated_feats.to("cpu")
 
-    pil_img.save(f"Dataset/{NAME}_{IMG_L}/{SPLIT}/imgs/{i:05d}.png")
-    torch.save(translated_feats, f"Dataset/{NAME}_{IMG_L}/{SPLIT}/embeddings/{i:05d}.pt")
+    split = "val" if i < N_VAL else "train"
+
+    pil_img.save(f"Dataset/{NAME}_{IMG_L}/{split}/imgs/{i:05d}.png")
+    torch.save(translated_feats, f"Dataset/{NAME}_{IMG_L}/{split}/embeddings/{i:05d}.pt")
 
     if i % 50 == 0:
         end_t = time()
