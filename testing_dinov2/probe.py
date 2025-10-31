@@ -50,7 +50,7 @@ def linear_probe(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray)
 
 
 
-def probe(input_preds: list, remove_channels: list, titles: list, ramp='diag'):
+def probe(input_preds: list, remove_channels: list, titles: list, ramp='diag', mask_step=6, mask_cutoff_frac=0.8):
     input_preds_, remove_channels_, titles_ = input_preds.copy(), remove_channels.copy(), titles.copy()
     N_COLS = len(input_preds_)+1
     WIDTH=4
@@ -61,7 +61,7 @@ def probe(input_preds: list, remove_channels: list, titles: list, ramp='diag'):
         input_np.append(to_numpy(inp))
     
     c, h, w = input_np[0].shape
-    sample_mask = gen_sample_mask((h, w), step=6, cutoff_frac=0.8)
+    sample_mask = gen_sample_mask((h, w), step=mask_step, cutoff_frac=mask_cutoff_frac)
     ramp = get_ramp(ramp, h=h, w=w)
 
     input_np.insert(0, ramp)
