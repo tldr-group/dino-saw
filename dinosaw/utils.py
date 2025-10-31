@@ -211,7 +211,6 @@ def translate_tensor_wrap(x: torch.Tensor, step_x: int = 0, step_y: int = 0) -> 
     """
     
     if not isinstance(step_x, (int,)) or not isinstance(step_y, (int,)):
-        #print(type(step_x), type(step_y))
         raise ValueError("translate_tensor_wrap expects integer step_x and step_y for exact circular wrap.")
     # torch.roll uses order: dims (H dim index 2, W dim index 3)
     return torch.roll(x, shifts=(step_y, step_x), dims=(2, 3))
@@ -318,35 +317,27 @@ def batched_translate_and_predict(model, img, x_step, y_step, scale_factor=14, d
     x_steps = [int(x * 14) for x in x_step]  # or x_step already scaled
     y_steps = [int(y * 14) for y in y_step]
 
-    start = time.perf_counter()
     # Build batched translated tensor (on device)
     translated_list = [torch.roll(img, shifts=(ys, xs), dims=(2, 3)) 
                        for xs, ys in zip(x_steps, y_steps)]
-    #print("time for rolling =", time.perf_counter() - start)
     batched_tensor = torch.cat(translated_list, dim=0)   # shape (N, C, H, W)
 
     # Inference in single batch on GPU
-    start = time.perf_counter()
     with torch.inference_mode():
         pred = model.forward_features(batched_tensor.float(), make_2D=True)  # stays on device
     print(pred.shape)
-    #print("time for inference =", time.perf_counter() - start)
 
     # Revert translations on the predictions (inverse roll)
     # assume pred shape (N, featC, featH, featW)
-    start = time.perf_counter()
+
     reverted_list = [torch.roll(p.unsqueeze(0), shifts=(-ys//14, -xs//14), dims=(2, 3))
                      for p, xs, ys in zip(pred, x_steps, y_steps)]
     batched_res = torch.cat(reverted_list, dim=0)  # (N, featC, featH, featW)
-    #print("time for unrolling =", time.perf_counter() - start)
 
     # optional: move to cpu if you need
     return batched_res
 
 def translate(model, img, factor=4, show_progress=True):
-    from tqdm import tqdm
-
-    from itertools import batched
     img_size=img.shape[-1]
 
     x = np.array(range(1, img_size//(factor*14)))*factor
@@ -355,8 +346,8 @@ def translate(model, img, factor=4, show_progress=True):
     x_steps, y_steps = np.meshgrid(x, y)
     #print()
 
-    x_batches = list(batched(x_steps.flatten(), x.shape[0]))
-    y_batches = list(batched(y_steps.flatten(), x.shape[0]))
+    # x_batches = list(batched(x_steps.flatten(), x.shape[0]))
+    # y_batches = list(batched(y_steps.flatten(), x.shape[0]))
 
     #print(x_batches, y_batches)
 
@@ -371,6 +362,7 @@ def translate(model, img, factor=4, show_progress=True):
     #     #print(intermediate.shape)
 
     if show_progress:
+        from tqdm import tqdm
         for x, y in tqdm(zip(x_steps.flatten().astype(int), y_steps.flatten().astype(int))):
             #print(res.shape, translate_14(img, x_step=int(x), y_step=int(y)).)
             res += translate_14(model, img, x_step=int(x), y_step=int(y))#.cpu()
