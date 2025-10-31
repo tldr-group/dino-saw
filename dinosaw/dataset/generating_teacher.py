@@ -3,9 +3,14 @@ import torch
 import io
 from PIL import Image
 import matplotlib.pyplot as plt
-from utils import convert_image, to_norm_tensor
+from utils import convert_image, to_norm_tensor, translate
 from tqdm import tqdm
-from translation import translate
+from models.vit_wrapper import (
+    PretrainedViTWrapper,
+    MODEL_MAP,
+    FeatureType,
+    MODEL_LIST,
+)
 
 torch.cuda.empty_cache()
 
@@ -22,12 +27,7 @@ class Dataset(torch.utils.data.Dataset):
         
         return convert_image(img, to_norm_tensor, device_str="cpu").squeeze()
     
-from vit_wrapper import (
-    PretrainedViTWrapper,
-    MODEL_MAP,
-    FeatureType,
-    MODEL_LIST,
-)
+
 
 
 vit_wrapper = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda")
