@@ -13,6 +13,7 @@ from typing import cast, Literal
 from time import time
 
 DEVICE = "cuda:1"
+NAME = "IN_reduced"
 IMG_L = 224
 SPLIT: Literal["train", "val"] = "train"
 
@@ -43,11 +44,11 @@ for i, dct in enumerate(ds):
 
     img_tensor = convert_image(pil_img, tr, True, True, device_str=DEVICE)
 
-    translated_feats = translate_featurise(img_tensor, dv2, step=14, mult=2, max_batch_size=128, device=DEVICE)
+    translated_feats = translate_featurise(img_tensor, dv2, step=14, mult=1, max_batch_size=128, device=DEVICE)
     translated_feats = translated_feats.to("cpu")
 
-    pil_img.save(f"Dataset/{SPLIT}/imgs/{i:05d}.png")
-    torch.save(translated_feats, f"Dataset/{SPLIT}/embeddings/{i:05d}.pt")
+    pil_img.save(f"Dataset/{NAME}_{IMG_L}/{SPLIT}/imgs/{i:05d}.png")
+    torch.save(translated_feats, f"Dataset/{NAME}_{IMG_L}/{SPLIT}/embeddings/{i:05d}.pt")
 
     if i % 50 == 0:
         end_t = time()
