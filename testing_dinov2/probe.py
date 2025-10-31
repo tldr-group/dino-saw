@@ -2,7 +2,7 @@ from typing import Literal
 import numpy as np
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
-from utils import to_numpy
+from dinosaw.utils import to_numpy
 
 
 
