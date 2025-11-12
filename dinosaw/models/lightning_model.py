@@ -10,6 +10,7 @@ from dinosaw.models.vit_wrapper import (
     PretrainedViTWrapper,
     MODEL_LIST,
 )
+from .example_overwrite import AlibiBlock
 from dinosaw.utils import do_2D_pca
 from .overwriting_methods import _pos_embed_no_pos
 
@@ -33,11 +34,16 @@ def get_sinusoid_encoding(num_tokens, token_len):
     return torch.FloatTensor(sinusoid_table).unsqueeze(0)
 
 class PEModel(L.LightningModule):
-    def __init__(self):
+    def __init__(self, use_alibi: bool = False):
         super().__init__()
+        self.use_alibi = use_alibi
 
     def configure_model(self):
-        self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda").train()
+        
+        if self.use_alibi:
+            self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, block_fn=AlibiBlock, device="cuda").train()
+        else:
+            self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda").train()
         
         # new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
         # new_pos_embedding
@@ -45,8 +51,8 @@ class PEModel(L.LightningModule):
         # del self.vit.model.pos_embed
         # self.vit.model.pos_embed = new_pos_embedding.to(device)
 
-        import types
-        self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
+        # import types
+        # self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
 
 
     def training_step(self, batch):
@@ -56,7 +62,7 @@ class PEModel(L.LightningModule):
         output = self.vit.forward_features(input, make_2D=True)
         #print(output, target.shape)
 
-        loss = nn.functional.mse_loss(output, target)
+        loss = nn.functional.mse_loss(output, target.squeeze())
         #print(loss)
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss, sync_dist=True)
@@ -65,7 +71,7 @@ class PEModel(L.LightningModule):
     def validation_step(self, batch):
         input, target = batch
         output = self.vit.forward_features(input, make_2D=True)
-        loss = nn.functional.mse_loss(output, target)
+        loss = nn.functional.mse_loss(output, target.squeeze())
         self.log("val_loss", loss, sync_dist=True)
         
         tensorboard = self.logger.experiment
