@@ -3,13 +3,14 @@ import polars as pl
 from PIL import Image
 import io
 from dinosaw.utils import convert_image, to_norm_tensor, load_image, resize_crop
+import glob
 
 
 class DatasetTrainStudent(torch.utils.data.Dataset):
     def __init__(self):
         self.dtype = torch.float32
         self.imgs = pl.read_parquet('/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/train/*.parquet', parallel="row_groups")
-        self.targets = torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/teacher/teacher_out_homo.pt")
+        self.targets = torch.load("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset/teacher/teacher_out_trans_homo.pt").to("cpu")
 
     def __len__(self):
         return len(self.imgs)
@@ -17,7 +18,7 @@ class DatasetTrainStudent(torch.utils.data.Dataset):
     def __getitem__(self, index):
         img_bytes = self.imgs.row(index)[0]["bytes"]
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-        target = self.targets[index, ::]
+        target = self.targets[index]
 
         return convert_image(img, to_norm_tensor, device_str="cpu").squeeze().to(self.dtype), target.to(self.dtype)
     
@@ -32,3 +33,21 @@ class DatasetValStudent(torch.utils.data.Dataset):
     
     def __getitem__(self, index):
         return self.img[index].squeeze().to(self.dtype), self.target[index].to(self.dtype)
+    
+class GenericDatasetStudent(torch.utils.data.Dataset):
+    def __init__(self, base_path, split):
+        self.img_paths = glob.glob(f"{base_path}/{split}/imgs/*.png")
+        self.target_paths = glob.glob(f"{base_path}/{split}/embeddings/*.pt")
+        self.dtype = torch.float32
+
+    def __len__(self):
+        if len(self.img_paths) != len(self.target_paths):
+            raise ValueError(f"Number of images and targets do not match. Images: {len(self.img_paths)}, Targets: {len(self.target_paths)}")
+        else:
+            return len(self.img_paths)
+
+    def __getitem__(self, index):
+        img = load_image(self.img_paths[index], resize_crop((224,224), (224,224)), device_str="cpu")[0]
+        print(self.target_paths[index])
+        target = torch.load(self.target_paths[index])
+        return img.squeeze().to(self.dtype), target.to(self.dtype)
