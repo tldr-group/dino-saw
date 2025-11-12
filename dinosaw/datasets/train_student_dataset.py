@@ -4,6 +4,7 @@ from PIL import Image
 import io
 from dinosaw.utils import convert_image, to_norm_tensor, load_image, resize_crop
 import glob
+import numpy as np
 
 
 class DatasetTrainStudent(torch.utils.data.Dataset):
@@ -36,8 +37,10 @@ class DatasetValStudent(torch.utils.data.Dataset):
     
 class GenericDatasetStudent(torch.utils.data.Dataset):
     def __init__(self, base_path, split):
-        self.img_paths = glob.glob(f"{base_path}/{split}/imgs/*.png")
-        self.target_paths = glob.glob(f"{base_path}/{split}/embeddings/*.pt")
+        self.img_paths = np.sort(glob.glob(f"{base_path}/{split}/imgs/*.png"))
+        self.target_paths = np.sort(glob.glob(f"{base_path}/{split}/embeddings/*.pt"))
+        self.targets = [torch.load(p) for p in self.target_paths]
+        self.imgs = [load_image(p, resize_crop((224,224), (224,224)), device_str="cpu")[0] for p in self.img_paths]
         self.dtype = torch.float32
 
     def __len__(self):
@@ -47,7 +50,6 @@ class GenericDatasetStudent(torch.utils.data.Dataset):
             return len(self.img_paths)
 
     def __getitem__(self, index):
-        img = load_image(self.img_paths[index], resize_crop((224,224), (224,224)), device_str="cpu")[0]
-        print(self.target_paths[index])
-        target = torch.load(self.target_paths[index])
+        img = self.imgs[index]
+        target = self.targets[index] #torch.load(self.target_paths[index])
         return img.squeeze().to(self.dtype), target.to(self.dtype)
