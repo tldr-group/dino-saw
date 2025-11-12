@@ -16,7 +16,7 @@ def main():
         mode="min"
     )
     
-    trainer = Trainer(devices=1, max_epochs=20, gradient_clip_val=1.0, callbacks=checkpoint_callback) #, strategy="ddp"
+    trainer = Trainer(devices=1, max_epochs=70, gradient_clip_val=1.0, callbacks=checkpoint_callback) #, strategy="ddp"
     trainer.fit(model=PEModel(), train_dataloaders=train_loader, val_dataloaders=val_loader)
 
 
