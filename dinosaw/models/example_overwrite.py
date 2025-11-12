@@ -33,6 +33,7 @@ def wrapped_distance_matrix(
     returns a Matrix with shape (H*W, H*W).
     metric: 'euclidean' or 'manhattan'
     """
+    # TODO: adding forward_features from vitwrapper for seq_len
     H,W = int(np.sqrt(N)), int(np.sqrt(N))
     coords = torch.stack(torch.meshgrid(
         torch.arange(H, device=device),#, dtype=torch.float32),
@@ -55,9 +56,9 @@ def wrapped_distance_matrix(
     else:
         raise ValueError("metric must be 'euclidean' or 'manhattan'")
     
-    # adding padding for CLS und register tokens
+    # adding padding for CLS und register tokens zero, because next to every token
     #print(D.shape)
-    D = F.pad(D, (0,5,0,5), mode="constant")
+    D = F.pad(D, (5,0,5,0), mode="constant") # changed from append to prepend
     #print(D.shape)
     return D
 
@@ -82,7 +83,7 @@ class AlibiAttention(Attention):
         # TODO: consider flexAttention here for efficient biased attention w/ custom score function
         # https://pytorch.org/blog/flexattention/
 
-        # TODO: Problems with registers in ALIBI
+        # TODO: Problems with registers in ALIBI \ maybe solved by using padding?
 
         B, N, C = x.shape
 
