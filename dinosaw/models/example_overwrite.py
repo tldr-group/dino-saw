@@ -13,7 +13,6 @@ from dinosaw.models.vit_wrapper import (
     MODEL_LIST,
 )
 
-from own_model import RelativeDino
 
 from typing import Optional, Type
 
