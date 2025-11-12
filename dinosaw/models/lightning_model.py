@@ -46,6 +46,10 @@ class PEModel(L.LightningModule):
         else:
             self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda").train()
         
+        import types
+        self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
+        self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False) #setting pos_encoding to zero without gradient
+        
         # new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
         # new_pos_embedding
         # device = torch.get_device(self.vit.model.pos_embed)
