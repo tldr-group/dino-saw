@@ -110,6 +110,8 @@ class PretrainedViTWrapper(nn.Module):
         self.dynamic_img_size = dynamic_img_size
         self.dynamic_img_pad = dynamic_img_pad
         self.model, self.transformation = self.create_model(model_identifier, device, **kwargs)
+
+
         # overwrite the stride size
         if stride != self.model.patch_embed.proj.stride[0]:
             self.model.patch_embed.proj.stride = (stride, stride)
@@ -150,12 +152,15 @@ class PretrainedViTWrapper(nn.Module):
         if is_fit3D:
             model_identifier = model_identifier[6:]
 
+        #model = 
+
         model = create_model(
             model_identifier,
-            pretrained=True,
+            pretrained=True,#True,
             num_classes=0,
             dynamic_img_size=self.dynamic_img_size,
             dynamic_img_pad=self.dynamic_img_pad,
+            pretrained_strict=False,
             **kwargs,
         )
         # Different models have different data configurations
