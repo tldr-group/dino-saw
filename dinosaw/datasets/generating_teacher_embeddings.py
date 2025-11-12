@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
 from dinosaw.utils import translate
-from dinosaw.datasets import TeacherDataset
+from .teacher_dataset import TeacherDataset
 from dinosaw.models.vit_wrapper import (
     PretrainedViTWrapper,
     MODEL_LIST,
