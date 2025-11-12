@@ -58,7 +58,7 @@ def wrapped_distance_matrix(
     
     # adding padding for CLS und register tokens
     #print(D.shape)
-    #D = F.pad(D, (0,5,0,5), mode="constant")
+    D = F.pad(D, (0,5,0,5), mode="constant")
     #print(D.shape)
     return D
 
@@ -101,10 +101,10 @@ class AlibiAttention(Attention):
             #print(q.shape, k.shape)
             attn = q @ k.transpose(-2, -1)
 
-            print(attn.shape)
+            #print(attn.shape)
 
-            bias = (self.m * wrapped_distance_matrix(N)).unsqueeze(0) # -5 becuase 4reg tokens + CLS
-            print(bias.shape)
+            bias = (self.m * wrapped_distance_matrix(N)).unsqueeze(0) # Alibi bias
+            #print(bias.shape)
             attn = attn + bias
 
             attn = attn.softmax(dim=-1)
@@ -114,7 +114,7 @@ class AlibiAttention(Attention):
         x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        print(x.shape)
+        #print(x.shape)
         return x
 
 
@@ -152,9 +152,12 @@ class AlibiBlock(Block):
 
 if __name__ == "__main__":
     
-    vt = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, block_fn=AlibiBlock)
+    vt = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, block_fn=AlibiBlock)#, pos_embed="none")
+    print(vt.model)
+    #print(vt.n_output_dims())
+    
     vt.pos_embed = None
     in_t = randn(1, 3, 224, 224)
     out = vt.forward_features(in_t, make_2D=True)
     print(out.shape)
-    print(vt)
+    # print(vt)
