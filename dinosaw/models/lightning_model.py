@@ -11,7 +11,7 @@ from dinosaw.models.vit_wrapper import (
     MODEL_LIST,
 )
 from .example_overwrite import AlibiBlock
-from dinosaw.utils import do_2D_pca
+from dinosaw.utils import do_2D_pca, normalize
 from .overwriting_methods import _pos_embed_no_pos
 
 def get_sinusoid_encoding(num_tokens, token_len):
@@ -37,6 +37,7 @@ class PEModel(L.LightningModule):
     def __init__(self, use_alibi: bool = False):
         super().__init__()
         self.use_alibi = use_alibi
+        self.last_validation_batch = None
 
     def configure_model(self):
         
@@ -74,10 +75,15 @@ class PEModel(L.LightningModule):
         loss = nn.functional.mse_loss(output, target.squeeze())
         self.log("val_loss", loss, sync_dist=True)
         
-        tensorboard = self.logger.experiment
+        
         #self.visualize(input, output)
-        tensorboard.add_image("intermediate_output", self.gen_vis_grid(input, output, target), self.current_epoch)
+        self.last_validation_batch = (input, output, target)
         return loss
+    
+    def on_validation_epoch_end(self):
+        tensorboard = self.logger.experiment
+        input, output, target = self.last_validation_batch
+        tensorboard.add_image("intermediate_output", self.gen_vis_grid(input[:2], output[:2], target[:2]), self.current_epoch)
     
     def forward(self, input):
         return self.vit.forward_features(input, make_2D=True)
@@ -85,7 +91,7 @@ class PEModel(L.LightningModule):
     def gen_vis_grid(self, input, output, target):
         res = []
         for input, output, target in zip(input, output, target):
-            orig = F.normalize(input.to("cpu").squeeze())
+            orig = normalize(input.to("cpu").squeeze())
             pred = v2.resize(torch.tensor(do_2D_pca(output.to("cpu").squeeze(), n_components=3, post_norm="minmax")).transpose(0,2).transpose(1,2), input.shape[-2:-1])
             target = v2.resize(torch.tensor(do_2D_pca(target.to("cpu").squeeze(), n_components=3, post_norm="minmax")).transpose(0,2).transpose(1,2), input.shape[-2:-1])
             res.append(torch.stack([orig, pred, target]))
