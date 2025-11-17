@@ -492,6 +492,7 @@ def probe(input_preds: list, remove_channels: list, titles: list, ramp="diag", m
                 scores = linear_probe_by_channel(arr, ramp, sample_mask)
                 ax.plot(scores)
                 ax.set_title(title)
+                ax.set_ylim(-1,1)
             else:
                 res = arr
                 title += f'\n'
