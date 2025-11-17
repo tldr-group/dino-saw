@@ -11,6 +11,8 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from typing import Literal
 
+from copy import deepcopy
+
 
 ### Work from Ronan
 
@@ -457,13 +459,20 @@ def probe_stack(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) 
         scores.append(score)
     return preds, scores
 
+def linear_probe_by_channel(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) -> tuple[np.ndarray, float]:
+    c, h, w = feats.shape
+    scores = []
+    for idx in range(c):
+        scores.append(linear_probe(feats[idx:idx+1,...], target, sample_mask)[1])
+    return scores
 
-def probe(input_preds: list, remove_channels: list, titles: list, ramp="diag", mask_step=6, mask_cutoff_frac=0.8):
+def probe(input_preds: list, remove_channels: list, titles: list, ramp="diag", mask_step=6, mask_cutoff_frac=0.8, by_channel=False):
     input_preds_, remove_channels_, titles_ = input_preds.copy(), remove_channels.copy(), titles.copy()
     N_COLS = len(input_preds_) + 1
     WIDTH = 4
     input_np = []
-    for inp, remove in zip(input_preds_, remove_channels_):
+    for inp_, remove in zip(input_preds_, remove_channels_):
+        inp = inp_.clone()
         if remove:
             inp[:, [47, 113, 117, 359], :, :] = 0
         input_np.append(to_numpy(inp))
@@ -475,15 +484,31 @@ def probe(input_preds: list, remove_channels: list, titles: list, ramp="diag", m
     input_np.insert(0, ramp)
     titles_.insert(0, "Ramp")
 
-    fig, axs = plt.subplots(1, N_COLS, figsize=(WIDTH * N_COLS, WIDTH))
-    for arr, ax, title in zip(input_np, axs, titles_):
-        if title != "Ramp":
-            print(arr.shape)
-            res, score = linear_probe(arr, ramp, sample_mask)
-            title += f"\n (R²: {score:.3f})"
-        else:
-            res = arr
-            title += f"\n"
-        ax.imshow(res)
-        ax.axis("off")
-        ax.set_title(title)
+    if by_channel:
+        fig, axs = plt.subplots(1, N_COLS, figsize=(WIDTH*N_COLS, WIDTH))
+        for arr, ax, title in zip(input_np, axs, titles_):
+            if title != 'Ramp':
+                #print(arr.shape)
+                scores = linear_probe_by_channel(arr, ramp, sample_mask)
+                ax.plot(scores)
+                ax.set_title(title)
+            else:
+                res = arr
+                title += f'\n'
+                ax.imshow(res)
+                ax.axis('off')
+                ax.set_title(title)
+
+    else:
+        fig, axs = plt.subplots(1, N_COLS, figsize=(WIDTH * N_COLS, WIDTH))
+        for arr, ax, title in zip(input_np, axs, titles_):
+            if title != "Ramp":
+                print(arr.shape)
+                res, score = linear_probe(arr, ramp, sample_mask)
+                title += f"\n (R²: {score:.3f})"
+            else:
+                res = arr
+                title += f"\n"
+            ax.imshow(res)
+            ax.axis("off")
+            ax.set_title(title)
