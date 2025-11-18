@@ -215,3 +215,5 @@ images/
 .vscode/
 features/
 archive/
+
+tmp/
