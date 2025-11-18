@@ -6,8 +6,9 @@ Post-hoc homogenisation of DINOv2 features.
 ## TODO:
 
 1) get it working:
-    - try interpolating the alibi distance matrix & train model
+    - try interpolating / resacling the alibi distance matrix & train model
         - i.e distance matrix is now relative to image height & width and is rescaled when new (larger) image is passed through
+        - i.e always in [0, 1] 
     - try paremeter efficient fine-tuning / a different training schedule (slower + longer)
     - does it need multiscale training?
         - i.e train it at (448, 448) / (518, 58)
@@ -24,7 +25,7 @@ Post-hoc homogenisation of DINOv2 features.
         - for series of different images: zeros tensor, dog, satellite image, microstructure (in order of homogeneity)
         - do this for all channels and channelwise
     - training target for our approach: original embeddings, flipped, translate_featurise
-    - finetuning method: from scratch, full finetuune, parameter efficient / LoRA
+    - finetuning method: from scratch, full finetuune, parameter efficient / LoRA, head network / layer (I imagine this won't work)
 3) does it improve things?
     - test it on whatever benchmarks DVT uses
         - VOC12 segmentation
