@@ -14,8 +14,10 @@ from dinosaw.models.vit_wrapper import (
 )
 
 
+from functools import lru_cache
 from typing import Optional, Type
 
+@lru_cache(maxsize=None)
 def get_alibi_slope(num_heads):
     x = (2 ** 8) ** (1 / num_heads)
     return (
@@ -24,6 +26,8 @@ def get_alibi_slope(num_heads):
         .unsqueeze(-1)
     )
 
+
+@lru_cache(maxsize=None)
 def wrapped_distance_matrix(
         N: int,
         metric: str = 'manhattan', 
@@ -52,7 +56,8 @@ def wrapped_distance_matrix(
     if metric == 'euclidean':
         D = torch.sqrt((diff ** 2).sum(-1))
     elif metric == 'manhattan':
-        D = diff.sum(-1) * (-1)
+        D = diff.sum(-1)
+        D = D/D.max() * (-1)
     else:
         raise ValueError("metric must be 'euclidean' or 'manhattan'")
     
@@ -60,7 +65,7 @@ def wrapped_distance_matrix(
     #print(D.shape)
     D = F.pad(D, (5,0,5,0), mode="constant") # changed from append to prepend
     #print(D.shape)
-    return D
+    return D.to("cuda")
 
 class AlibiAttention(Attention):
 
@@ -77,7 +82,8 @@ class AlibiAttention(Attention):
     ) -> None:
         super().__init__(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, proj_bias=proj_bias, qk_norm=qk_norm, attn_drop=attn_drop, proj_drop=proj_drop, norm_layer=norm_layer)
         self.fused_attn = False
-        self.register_buffer("m", get_alibi_slope(self.num_heads))
+        #self.register_buffer("m", get_alibi_slope(self.num_heads))
+        self.m = get_alibi_slope(self.num_heads)
 
     def forward(self, x: Tensor, attn_mask: None) -> Tensor:
         # TODO: consider flexAttention here for efficient biased attention w/ custom score function
@@ -92,9 +98,11 @@ class AlibiAttention(Attention):
         q, k = self.q_norm(q), self.k_norm(k)
 
         if self.fused_attn:
+            bias = (self.m * wrapped_distance_matrix(N)).unsqueeze(0) # Alibi bias
             x = F.scaled_dot_product_attention(
                 q, k, v,
                 dropout_p=self.attn_drop.p if self.training else 0.,
+                attn_mask=bias
             )
         else:
             q = q * self.scale
@@ -102,8 +110,8 @@ class AlibiAttention(Attention):
             attn = q @ k.transpose(-2, -1)
 
             #print(attn.shape)
-
             bias = (self.m * wrapped_distance_matrix(N)).unsqueeze(0) # Alibi bias
+            
             #print(bias.shape)
             attn = attn + bias
 
