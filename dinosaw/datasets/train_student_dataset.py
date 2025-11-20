@@ -57,12 +57,12 @@ class DatasetValStudent(torch.utils.data.Dataset):
 
 
 class GenericDatasetStudent(torch.utils.data.Dataset):
-    def __init__(self, base_path, split):
+    def __init__(self, base_path, split, dtype=torch.float32):
         self.img_paths = np.sort(glob.glob(f"{base_path}/{split}/imgs/*.png"))
         self.target_paths = np.sort(glob.glob(f"{base_path}/{split}/embeddings/*.pt"))
         self.targets = [torch.load(p) for p in self.target_paths]
         self.imgs = [load_image(p, resize_crop((224, 224), (224, 224)), device_str="cpu")[0] for p in self.img_paths]
-        self.dtype = torch.float32
+        self.dtype = dtype
 
     def __len__(self):
         if len(self.img_paths) != len(self.target_paths):
