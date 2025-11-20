@@ -37,7 +37,7 @@ def get_feats(full_img_batch: torch.Tensor, vit_wrapper: PretrainedViTWrapper, m
     with torch.inference_mode():
         for i in range(n_minibatches):
             minibatch = full_img_batch[i * max_batch_size : (i + 1) * max_batch_size]
-            minibatch_feats = vit_wrapper.forward_features(minibatch, make_2D=True)
+            minibatch_feats = vit_wrapper.forward_features(minibatch, make_2D=True).cpu()
             out_feats.append(minibatch_feats)
     return torch.cat(out_feats, dim=0)
 
@@ -66,6 +66,7 @@ def translate_featurise(
     device: str = "cuda",
 ) -> torch.Tensor:
     _, _, h, w = img.shape
+    img = img.cpu()
     shifts = get_shifts(h, w, step, mult)
     img_batch = get_batch(img, shifts)
     img_batch = img_batch.to(device)
