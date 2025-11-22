@@ -13,6 +13,16 @@ from dinosaw.models.vit_wrapper import (
 from .example_overwrite import AlibiBlock
 from dinosaw.utils import do_2D_pca, normalize
 from .overwriting_methods import _pos_embed_no_pos
+from functools import partial
+
+# hyperparams for LoRA
+lora_r = 12
+lora_alpha = 4
+lora_dropout = 0.05
+lora_qkv = True
+lora_proj = True
+lora_mlp = True
+
 
 def get_sinusoid_encoding(num_tokens, token_len):
     """ Make Sinusoid Encoding Table
@@ -33,23 +43,72 @@ def get_sinusoid_encoding(num_tokens, token_len):
     sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2]) 
     return torch.FloatTensor(sinusoid_table).unsqueeze(0)
 
+class LoRALayer(torch.nn.Module):
+    '''
+        Layer that implements LoRA
+    '''
+    def __init__(self, in_dim, out_dim, rank, alpha):
+        super().__init__()
+        std_dev = 1 / torch.sqrt(torch.tensor(rank).float())
+        self.A = torch.nn.Parameter(torch.randn(in_dim, rank) * std_dev)
+        self.B = torch.nn.Parameter(torch.zeros(rank, out_dim))
+        self.alpha = alpha
+
+    def forward(self, x):
+        x = self.alpha * (x @ self.A @ self.B)
+        return x
+    
+class LinearWithLoRA(torch.nn.Module):
+    def __init__(self, linear, rank, alpha):
+        '''
+            implements addition between LoRA layer and linear layer for PEFT
+        '''
+        super().__init__()
+        self.linear = linear
+        self.lora = LoRALayer(
+            linear.in_features, linear.out_features, rank, alpha
+        )
+
+    def forward(self, x):
+        return self.linear(x) + self.lora(x)
+
+def add_lora(model):
+        for param in model.model.parameters():
+            param.requires_grad = False
+        
+        assign_lora = partial(LinearWithLoRA, rank=lora_r, alpha=lora_alpha)
+
+        for layer in model.model.blocks:
+            if lora_qkv:
+                layer.attn.qkv = assign_lora(layer.attn.qkv)
+            if lora_proj:
+                layer.attn.proj = assign_lora(layer.attn.proj)
+            if lora_mlp:
+                layer.mlp.fc1 = assign_lora(layer.mlp.fc1)
+                layer.mlp.fc2 = assign_lora(layer.mlp.fc2)
+
 class PEModel(L.LightningModule):
-    def __init__(self, use_alibi: bool = False):
+    def __init__(self, use_alibi: bool = False, remove_pos_embed=False):
         super().__init__()
         self.use_alibi = use_alibi
         self.last_validation_batch = None
+        self.remove_pos_embed = remove_pos_embed
 
     def configure_model(self):
-        
         if self.use_alibi:
             self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, block_fn=AlibiBlock, device="cuda").train()
         else:
             self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda").train()
         
-        import types
-        self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
-        self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False) #setting pos_encoding to zero without gradient
+        if self.remove_pos_embed:
+            import types
+            self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
+            self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False) #setting pos_encoding to zero without gradient
+
         
+        #add_lora(self.vit)
+
+
         # new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
         # new_pos_embedding
         # device = torch.get_device(self.vit.model.pos_embed)
@@ -58,6 +117,8 @@ class PEModel(L.LightningModule):
 
         # import types
         # self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
+
+    
 
 
     def training_step(self, batch):
@@ -68,6 +129,7 @@ class PEModel(L.LightningModule):
         #print(output, target.shape)
 
         loss = nn.functional.mse_loss(output, target.squeeze())
+        #loss = nn.functional.cosine_embedding_loss(output.flatten(1), target.squeeze().flatten(1), torch.ones((input.shape[0])).to("cuda"))
         #print(loss)
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss, sync_dist=True)
@@ -77,6 +139,7 @@ class PEModel(L.LightningModule):
         input, target = batch
         output = self.vit.forward_features(input, make_2D=True)
         loss = nn.functional.mse_loss(output, target.squeeze())
+        #loss = nn.functional.cosine_embedding_loss(output.flatten(1), target.squeeze().flatten(1), torch.ones((input.shape[0])).to("cuda"))
         self.log("val_loss", loss, sync_dist=True)
         
         
