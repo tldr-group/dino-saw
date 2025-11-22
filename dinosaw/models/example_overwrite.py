@@ -82,8 +82,8 @@ class AlibiAttention(Attention):
     ) -> None:
         super().__init__(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, proj_bias=proj_bias, qk_norm=qk_norm, attn_drop=attn_drop, proj_drop=proj_drop, norm_layer=norm_layer)
         self.fused_attn = False
-        #self.register_buffer("m", get_alibi_slope(self.num_heads))
-        self.m = get_alibi_slope(self.num_heads)
+        self.register_buffer("m", get_alibi_slope(self.num_heads))
+        #self.m = get_alibi_slope(self.num_heads).to(self.device)
 
     def forward(self, x: Tensor, attn_mask: None) -> Tensor:
         # TODO: consider flexAttention here for efficient biased attention w/ custom score function
