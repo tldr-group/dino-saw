@@ -88,11 +88,16 @@ def add_lora(model):
                 layer.mlp.fc2 = assign_lora(layer.mlp.fc2)
 
 class PEModel(L.LightningModule):
-    def __init__(self, use_alibi: bool = False, remove_pos_embed=False):
+    def __init__(self, 
+                 use_alibi: bool =  False, 
+                 remove_pos_embed = False, 
+                 loss_func: str =   "mse"
+                ):
         super().__init__()
         self.use_alibi = use_alibi
         self.last_validation_batch = None
         self.remove_pos_embed = remove_pos_embed
+        self.los_func = loss_func
 
     def configure_model(self):
         if self.use_alibi:
@@ -128,8 +133,8 @@ class PEModel(L.LightningModule):
         output = self.vit.forward_features(input, make_2D=True)
         #print(output, target.shape)
 
-        loss = nn.functional.mse_loss(output, target.squeeze())
-        #loss = nn.functional.cosine_embedding_loss(output.flatten(1), target.squeeze().flatten(1), torch.ones((input.shape[0])).to("cuda"))
+        
+        loss = self.calc_loss(output, target)
         #print(loss)
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss, sync_dist=True)
@@ -138,8 +143,8 @@ class PEModel(L.LightningModule):
     def validation_step(self, batch):
         input, target = batch
         output = self.vit.forward_features(input, make_2D=True)
-        loss = nn.functional.mse_loss(output, target.squeeze())
-        #loss = nn.functional.cosine_embedding_loss(output.flatten(1), target.squeeze().flatten(1), torch.ones((input.shape[0])).to("cuda"))
+
+        loss = self.calc_loss(output, target)
         self.log("val_loss", loss, sync_dist=True)
         
         
@@ -183,6 +188,18 @@ class PEModel(L.LightningModule):
             
         fig.savefig("test.png")
         plt.close()
+
+    def calc_loss(self, output, target):
+        '''
+            calculates loss function for the model
+        '''
+        if self.loss_func == "cosine_similarity":
+            loss = 1-torch.cosine_similarity(output, target, dim=-3)
+        elif self.loss_func == "cosine_embedding":
+            loss = nn.functional.cosine_embedding_loss(output.flatten(1), target.squeeze().flatten(1), torch.ones((input.shape[0])).to("cuda"))
+        else:
+            loss = nn.functional.mse_loss(output, target.squeeze())
+        return loss
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=1e-5)
