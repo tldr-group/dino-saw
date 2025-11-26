@@ -6,6 +6,7 @@ from dinosaw.utils import load_image, closest_crop, do_2D_pca, to_numpy
 from dinosaw.utils import linear_probe, get_ramp, gen_sample_mask
 
 import matplotlib.pyplot as plt
+from functools import lru_cache
 
 
 def get_shifts(h: int, w: int, step: int, mult: int) -> list[tuple[int, int]]:
@@ -37,7 +38,7 @@ def get_feats(full_img_batch: torch.Tensor, vit_wrapper: PretrainedViTWrapper, m
     with torch.inference_mode():
         for i in range(n_minibatches):
             minibatch = full_img_batch[i * max_batch_size : (i + 1) * max_batch_size]
-            minibatch_feats = vit_wrapper.forward_features(minibatch, make_2D=True).cpu()
+            minibatch_feats = vit_wrapper.forward_features(minibatch.to("cuda"), make_2D=True).cpu()
             out_feats.append(minibatch_feats)
     return torch.cat(out_feats, dim=0)
 
@@ -55,7 +56,7 @@ def invert_shifts_and_average(
     stacked = torch.stack(inverted, dim=0)
     return torch.sum(stacked, dim=0, keepdim=True, dtype=torch.float64) / b
 
-
+@lru_cache(maxsize=None)
 @torch.no_grad()
 def translate_featurise(
     img: torch.Tensor,
@@ -69,7 +70,7 @@ def translate_featurise(
     img = img.cpu()
     shifts = get_shifts(h, w, step, mult)
     img_batch = get_batch(img, shifts)
-    img_batch = img_batch.to(device)
+    #img_batch = img_batch.to(device)
     feats_batch = get_feats(img_batch, vit_wrapper, max_batch_size)
     translated_feats = invert_shifts_and_average(feats_batch, shifts, vit_wrapper.patch_size)
     return translated_feats
