@@ -10,12 +10,13 @@ from dinosaw.datasets import DatasetTrainStudent, DatasetValStudent, GenericData
 class AbsPEFader(Callback):
     def __init__(
         self,
-        start: float = 1.0,      # Start-Skale
-        mid: float = 0.02,       # Ziel am Ende der schnellen Phase
-        end: float = 0.0,        # End-Skale
-        steps_fast: int = 1000,  # schnelle Phase: Anzahl Optimizer-Schritte
-        steps_slow: int = 20000, # langsame Phase: Anzahl Optimizer-Schritte
-        slow_kind: str = "cosine",  # "cosine" oder "linear" für Phase 2
+        start: float = 1.0,       # Start-Skale
+        mid: float = 0.02,        # Ziel am Ende der schnellen Phase
+        end: float = 0.0,         # End-Skale
+        steps_fast: int = 1000,   # schnelle Phase: Anzahl Optimizer-Schritte
+        steps_slow: int = 20000,  # langsame Phase: Anzahl Optimizer-Schritte
+        slow_kind: str = "cosine",  # "cosine", "linear" oder "log"
+        log_k: float = 9.0,       # Form-Parameter für logarithmischen Abfall (größer = schneller früher Abfall)
         freeze_pos_embed: bool = True,
         restore_on_fit_end: bool = False
     ):
@@ -26,6 +27,7 @@ class AbsPEFader(Callback):
         self.steps_fast = max(1, int(steps_fast))
         self.steps_slow = max(1, int(steps_slow))
         self.slow_kind = slow_kind
+        self.log_k = float(log_k)
         self.freeze_pos_embed = freeze_pos_embed
         self.restore_on_fit_end = restore_on_fit_end
         self.vit = None
@@ -33,7 +35,7 @@ class AbsPEFader(Callback):
     def _s(self, step: int) -> float:
         # 2-Phasen-Schedule:
         # Phase 1: linear start -> mid über steps_fast
-        # Phase 2: linear oder cosine mid -> end über steps_slow
+        # Phase 2: linear/cosine/logarithmisch mid -> end über steps_slow
         if step <= self.steps_fast:
             t = step / self.steps_fast
             p = self.start + t * (self.mid - self.start)
@@ -45,8 +47,17 @@ class AbsPEFader(Callback):
                 # cosine-anneal: 1 -> 0 auf [0,1]
                 cos_t = 0.5 * (1 + math.cos(math.pi * t))
                 p = self.end + (self.mid - self.end) * cos_t
+            elif self.slow_kind in ("log", "logarithmic", "logarithmisch"):
+                # Normalisierte Log-Kurve z in [0,1]
+                # z(0)=0, z(1)=1; größere log_k -> stärkerer früher Abfall
+                if self.mid == self.end:
+                    p = self.end
+                else:
+                    k = max(1e-6, self.log_k)
+                    z = math.log1p(k * t) / math.log1p(k)   # 0..1, konkav
+                    p = self.mid + (self.end - self.mid) * z
             else:
-                raise ValueError(f"Unknown slow_kind:{self.slow_kind}")
+                raise ValueError(f"Unknown slow_kind")
         return float(min(1.0, max(0.0, p)))
 
     def _find_vit(self, pl_module):
@@ -85,10 +96,8 @@ class AbsPEFader(Callback):
     def on_fit_end(self, trainer, pl_module):
         with torch.no_grad():
             if self.restore_on_fit_end:
-                # ursprüngliche PE wiederherstellen
                 self.vit.pos_embed.copy_(self.vit.pos_embed_base)
             else:
-                # Endwert exakt setzen (typisch 0.0)
                 self.vit.pos_embed.copy_(self.vit.pos_embed_base * self.end)
 
 def main():
@@ -114,7 +123,7 @@ def main():
         gradient_clip_val=1.0, 
         callbacks=[
             checkpoint_callback, 
-            #AbsPEFader(start=1, mid=0.05, end=0, steps_fast=10_000, steps_slow=50_000, freeze_pos_embed=True, restore_on_fit_end=False), 
+            AbsPEFader(start=1, mid=0.3, end=0, steps_fast=10_000, steps_slow=50_000, slow_kind="log",log_k=9, freeze_pos_embed=True, restore_on_fit_end=False), 
             endcheckpoint_callback
         ], 
         log_every_n_steps=20, 
