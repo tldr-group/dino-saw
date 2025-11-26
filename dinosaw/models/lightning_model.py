@@ -97,7 +97,7 @@ class PEModel(L.LightningModule):
         self.use_alibi = use_alibi
         self.last_validation_batch = None
         self.remove_pos_embed = remove_pos_embed
-        self.los_func = loss_func
+        self.loss_func = loss_func
 
     def configure_model(self):
         if self.use_alibi:
@@ -110,9 +110,7 @@ class PEModel(L.LightningModule):
             self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
             self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False) #setting pos_encoding to zero without gradient
 
-        
         #add_lora(self.vit)
-
 
         # new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
         # new_pos_embedding
