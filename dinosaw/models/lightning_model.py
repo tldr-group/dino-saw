@@ -87,6 +87,25 @@ def add_lora(model):
                 layer.mlp.fc1 = assign_lora(layer.mlp.fc1)
                 layer.mlp.fc2 = assign_lora(layer.mlp.fc2)
 
+def unfreeze_alibi_and_norms(model, unfreeze_layernorms=True, unfreeze_other_patterns=None):
+    """
+    Unfreeze alibi parameters and optionally LayerNorm params and other user-specified patterns.
+    unfreeze_other_patterns: list of substrings in parameter names to unfreeze (e.g. ['head', 'proj'])
+    """
+    if unfreeze_other_patterns is None:
+        unfreeze_other_patterns = []
+
+    for name, p in model.named_parameters():
+        # if "attn" in name:
+        #     p.requires_grad = True
+        if unfreeze_layernorms and (".norm" in name or "ln" in name or "layernorm" in name.lower() or "layer_norm" in name.lower() or "ls1" in name.lower() or "ls2" in name.lower()): #or ("mlp" in name.lower() and ("blocks.11" in name.lower() or "blocks.10" in name.lower()))
+            p.requires_grad = True
+        else:
+            for pat in unfreeze_other_patterns:
+                if pat in name:
+                    p.requires_grad = True
+                    break
+
 class PEModel(L.LightningModule):
     def __init__(self, 
                  use_alibi: bool =  False, 
@@ -110,6 +129,12 @@ class PEModel(L.LightningModule):
             self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
             self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False) #setting pos_encoding to zero without gradient
 
+        for p in self.vit.parameters():
+            p.requires_grad = False
+
+        unfreeze_alibi_and_norms(model = self.vit, unfreeze_layernorms=True, unfreeze_other_patterns=["attn"])
+
+
         #add_lora(self.vit)
 
         # new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
@@ -130,9 +155,11 @@ class PEModel(L.LightningModule):
         #input = torch.nan_to_num(input, nan=0.0, posinf=1e6, neginf=-1e6)
         output = self.vit.forward_features(input, make_2D=True)
         #print(output, target.shape)
-
+        
         
         loss = self.calc_loss(output, target)
+        
+        #print(self.vit.model.pos_drop)
         #print(loss)
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss, sync_dist=True)
@@ -141,7 +168,7 @@ class PEModel(L.LightningModule):
     def validation_step(self, batch):
         input, target = batch
         output = self.vit.forward_features(input, make_2D=True)
-
+        #print( self.vit.model.pos_embed)
         loss = self.calc_loss(output, target)
         self.log("val_loss", loss, sync_dist=True)
         
@@ -191,10 +218,8 @@ class PEModel(L.LightningModule):
         '''
             calculates loss function for the model
         '''
-        if self.loss_func == "cosine_similarity":
-            loss = 1-torch.cosine_similarity(output, target, dim=-3)
-        elif self.loss_func == "cosine_embedding":
-            loss = nn.functional.cosine_embedding_loss(output.flatten(1), target.squeeze().flatten(1), torch.ones((input.shape[0])).to("cuda"))
+        if self.loss_func == "cosine_embedding":
+            loss = nn.functional.cosine_embedding_loss(output.flatten(1), target.squeeze().flatten(1), torch.ones((output.shape[0])).to("cuda"))
         else:
             loss = nn.functional.mse_loss(output, target.squeeze())
         return loss
