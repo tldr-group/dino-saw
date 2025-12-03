@@ -28,8 +28,9 @@ def get_alibi_slope(num_heads):
 
 
 @lru_cache(maxsize=None)
-def wrapped_distance_matrix(
+def distance_matrix(
         N: int,
+        wrap: bool=True,
         metric: str = 'manhattan', 
         device: str = 'cpu') -> torch.Tensor:
     """
@@ -50,11 +51,13 @@ def wrapped_distance_matrix(
 
     # Wrapped Distanzen
     diff = diff.abs()
-    diff[..., 0] = torch.minimum(diff[..., 0], H - diff[..., 0])
-    diff[..., 1] = torch.minimum(diff[..., 1], W - diff[..., 1])
+    if wrap:
+        diff[..., 0] = torch.minimum(diff[..., 0], H - diff[..., 0])
+        diff[..., 1] = torch.minimum(diff[..., 1], W - diff[..., 1])
 
     if metric == 'euclidean':
         D = torch.sqrt((diff ** 2).sum(-1))
+        D = D/D.max() * (-1)
     elif metric == 'manhattan':
         D = diff.sum(-1)
         D = D/D.max() * (-1)
@@ -98,7 +101,7 @@ class AlibiAttention(Attention):
         q, k = self.q_norm(q), self.k_norm(k)
 
         if self.fused_attn:
-            bias = (self.m * wrapped_distance_matrix(N)).unsqueeze(0) # Alibi bias
+            bias = (self.m * distance_matrix(N, wrap=True, metric="euclidean")).unsqueeze(0) # Alibi bias
             x = F.scaled_dot_product_attention(
                 q, k, v,
                 dropout_p=self.attn_drop.p if self.training else 0.,
@@ -110,7 +113,7 @@ class AlibiAttention(Attention):
             attn = q @ k.transpose(-2, -1)
 
             #print(attn.shape)
-            bias = (self.m * wrapped_distance_matrix(N)).unsqueeze(0) # Alibi bias
+            bias = (self.m * distance_matrix(N, wrap=True, metric="euclidean")).unsqueeze(0) # Alibi bias
             
             #print(bias.shape)
             attn = attn + bias
