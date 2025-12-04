@@ -129,10 +129,13 @@ class PEModel(L.LightningModule):
             self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
             self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False) #setting pos_encoding to zero without gradient
 
-        for p in self.vit.parameters():
-            p.requires_grad = False
+        self.base_pos_embed = self.vit.model.pos_embed
+        self.base_pos_embed.requires_grad = False
+        
+        # for p in self.vit.parameters():
+        #     p.requires_grad = False
 
-        unfreeze_alibi_and_norms(model = self.vit, unfreeze_layernorms=True, unfreeze_other_patterns=["attn"])
+        # unfreeze_alibi_and_norms(model = self.vit, unfreeze_layernorms=True, unfreeze_other_patterns=["attn"])
 
 
         #add_lora(self.vit)
@@ -145,9 +148,6 @@ class PEModel(L.LightningModule):
 
         # import types
         # self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
-
-    
-
 
     def training_step(self, batch):
         input, target = batch
@@ -164,7 +164,13 @@ class PEModel(L.LightningModule):
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss, sync_dist=True)
         return loss
-    
+
+
+    def on_validation_epoch_start(self):
+        # setting validation pos_embedding to zeros
+        self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False)
+        return super().on_validation_epoch_start()
+
     def validation_step(self, batch):
         input, target = batch
         output = self.vit.forward_features(input, make_2D=True)
@@ -181,6 +187,11 @@ class PEModel(L.LightningModule):
         tensorboard = self.logger.experiment
         input, output, target = self.last_validation_batch
         tensorboard.add_image("intermediate_output", self.gen_vis_grid(input[:2], output[:2], target[:2]), self.current_epoch)
+    
+    def on_validation_end(self):
+        # returning it to normal
+        self.vit.model.pos_embed = self.base_pos_embed
+        return super().on_validation_end()
     
     def forward(self, input):
         return self.vit.forward_features(input, make_2D=True)
