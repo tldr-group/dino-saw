@@ -218,3 +218,5 @@ archive/
 
 tmp/
 Dataset_/
+data/
+experiments/*

@@ -8,24 +8,27 @@ Adpated from https://github.com/Jiawei-Yang/Denoising-ViT/blob/main/dvt/models/v
 import torch
 from torch import nn
 from torchvision import transforms
+
 from timm import create_model
-import re
-from typing import cast
-from types import MethodType
-from typing import Callable, Literal
 from timm.data import create_transform, resolve_data_config
 from timm.models.vision_transformer import VisionTransformer, Attention, Block
+
+
+from dinosaw.models.alibi import AlibiBlock
+
+import re
+from typing import cast, Callable, Literal
+from types import MethodType
+
 
 FLASH_ATTN_INSTALLED = False
 try:
     from flash_attn import flash_attn_qkvpacked_func
+
     print("flash attention installed")
     FLASH_ATTN_INSTALLED = True
 except ImportError:
     pass
-
-
-
 
 
 FeatureType = Literal["FEATUP", "LOFTUP_FULL", "LOFTUP_COMPRESSED"]
@@ -59,7 +62,7 @@ class Patch:
         def forward(
             self: Attention,
             x: torch.Tensor,
-            attn_mask=None, #attn_bias=None,
+            attn_mask=None,  # attn_bias=None,
         ) -> torch.Tensor:
             # TODO: attn_bias -> attn_mask in new timm, find way to align these
             B, N, C = x.shape
@@ -111,7 +114,6 @@ class PretrainedViTWrapper(nn.Module):
         self.dynamic_img_pad = dynamic_img_pad
         self.model, self.transformation = self.create_model(model_identifier, device, **kwargs)
 
-
         # overwrite the stride size
         if stride != self.model.patch_embed.proj.stride[0]:
             self.model.patch_embed.proj.stride = (stride, stride)
@@ -152,11 +154,11 @@ class PretrainedViTWrapper(nn.Module):
         if is_fit3D:
             model_identifier = model_identifier[6:]
 
-        #model = 
+        # model =
 
         model = create_model(
             model_identifier,
-            pretrained=True,#True,
+            pretrained=True,  # True,
             num_classes=0,
             dynamic_img_size=self.dynamic_img_size,
             dynamic_img_pad=self.dynamic_img_pad,
@@ -202,7 +204,9 @@ class PretrainedViTWrapper(nn.Module):
     def forward(self, x: torch.Tensor):
         return self.model(x)
 
-    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False) -> torch.Tensor:
+    def forward_features(
+        self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, abs_pos_enc_drop_prob: float = 0.0
+    ) -> torch.Tensor:
         b, _, h, w = x.shape
         p = self.patch_size
         s = self.stride
@@ -219,8 +223,62 @@ class PretrainedViTWrapper(nn.Module):
         return feats
 
 
+class AlibiVitWrapper(PretrainedViTWrapper):
+    def __init__(
+        self,
+        model_identifier: str = "vit_small_patch14_dinov2.lvd142m",
+        stride: int = 14,
+        add_flash_attn: bool = True,
+        dynamic_img_size: bool = True,
+        dynamic_img_pad: bool = False,
+        device: str = "cpu",
+        **kwargs,
+    ):
+        super().__init__(
+            model_identifier=model_identifier,
+            stride=stride,
+            add_flash_attn=add_flash_attn,
+            dynamic_img_size=dynamic_img_size,
+            dynamic_img_pad=dynamic_img_pad,
+            device=device,
+            block_fn=AlibiBlock,
+            **kwargs,
+        )
+        self.model.pos_embed.requires_grad = False  # freeze pos embedding
+
+    def set_alibi_enabled(self, enabled: bool):
+        for blk in self.model.blocks:
+            blk: AlibiBlock
+            blk.attn.is_enabled = enabled
+
+    def forward(self, x: torch.Tensor):
+        # TODO: set alibi distance matrix size
+        return self.model(x)
+
+    def forward_features(
+        self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, abs_pos_enc_drop_prob: float = 0.0
+    ) -> torch.Tensor:
+        assert self.model.pos_embed is not None
+        b, _, h, w = x.shape
+        p = self.patch_size
+        s = self.stride
+        n_patch_h, n_patch_w = (h - p) // s + 1, (w - p) // s + 1
+        for blk in self.model.blocks:
+            blk: AlibiBlock
+            blk.set_distance_matrix_size(n_tokens_h=n_patch_h, n_tokens_w=n_patch_w, n_reg_tokens=self.n_reg_tokens)
+
+        do_abs_pos_enc_drop = torch.rand(1).item() <= abs_pos_enc_drop_prob
+        cached_pos_embed_data = self.model.pos_embed.data.clone()
+        if do_abs_pos_enc_drop and self.training:
+            self.model.pos_embed.data.zero_()
+
+        feats = super().forward_features(x, make_2D, add_reg)
+        self.model.pos_embed.data.copy_(cached_pos_embed_data)
+        return feats
+
+
 if __name__ == "__main__":
-    dv2 = PretrainedViTWrapper("fit3D_vit_small_patch14_reg4_dinov2.lvd142m", 7)
+    dv2 = AlibiVitWrapper("fit3D_vit_small_patch14_reg4_dinov2.lvd142m", add_flash_attn=False)
     x = torch.zeros((1, 3, 14 * 4, 14 * 4))
-    o = dv2.forward_features(x, True, False)
+    o = dv2.forward_features(x, True, False, abs_pos_enc_drop_prob=0.5)
     print(o.shape)
