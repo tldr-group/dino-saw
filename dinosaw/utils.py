@@ -6,12 +6,11 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.linear_model import LinearRegression
 from torchvision import transforms
 
-import time
 from PIL import Image
 import matplotlib.pyplot as plt
 from typing import Literal
 
-from copy import deepcopy
+from random import seed as rseed
 
 
 ### Work from Ronan
@@ -459,14 +458,24 @@ def probe_stack(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) 
         scores.append(score)
     return preds, scores
 
+
 def linear_probe_by_channel(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) -> tuple[np.ndarray, float]:
     c, h, w = feats.shape
     scores = []
     for idx in range(c):
-        scores.append(linear_probe(feats[idx:idx+1,...], target, sample_mask)[1])
+        scores.append(linear_probe(feats[idx : idx + 1, ...], target, sample_mask)[1])
     return scores
 
-def probe(input_preds: list, remove_channels: list, titles: list, ramp="diag", mask_step=6, mask_cutoff_frac=0.8, by_channel=False):
+
+def probe(
+    input_preds: list,
+    remove_channels: list,
+    titles: list,
+    ramp="diag",
+    mask_step=6,
+    mask_cutoff_frac=0.8,
+    by_channel=False,
+):
     input_preds_, remove_channels_, titles_ = input_preds.copy(), remove_channels.copy(), titles.copy()
     N_COLS = len(input_preds_) + 1
     WIDTH = 4
@@ -485,19 +494,19 @@ def probe(input_preds: list, remove_channels: list, titles: list, ramp="diag", m
     titles_.insert(0, "Ramp")
 
     if by_channel:
-        fig, axs = plt.subplots(1, N_COLS, figsize=(WIDTH*N_COLS, WIDTH))
+        fig, axs = plt.subplots(1, N_COLS, figsize=(WIDTH * N_COLS, WIDTH))
         for arr, ax, title in zip(input_np, axs, titles_):
-            if title != 'Ramp':
-                #print(arr.shape)
+            if title != "Ramp":
+                # print(arr.shape)
                 scores = linear_probe_by_channel(arr, ramp, sample_mask)
                 ax.plot(scores)
                 ax.set_title(title)
-                ax.set_ylim(-1,1)
+                ax.set_ylim(-1, 1)
             else:
                 res = arr
-                title += f'\n'
+                title += f"\n"
                 ax.imshow(res)
-                ax.axis('off')
+                ax.axis("off")
                 ax.set_title(title)
 
     else:
@@ -513,3 +522,11 @@ def probe(input_preds: list, remove_channels: list, titles: list, ramp="diag", m
             ax.imshow(res)
             ax.axis("off")
             ax.set_title(title)
+
+
+def seed_everything(seed: int):
+    rseed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)

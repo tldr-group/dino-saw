@@ -1,6 +1,2 @@
-__all__ = [
-    "PEModel",
-    "PretrainedViTWrapper"
-]
-from .models.lightning_model import PEModel
+__all__ = ["PretrainedViTWrapper"]
 from .models.vit_wrapper import PretrainedViTWrapper
