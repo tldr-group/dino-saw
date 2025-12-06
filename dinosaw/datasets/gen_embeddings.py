@@ -1,7 +1,7 @@
 import numpy as np
 
 import torch
-from datasets import load_dataset
+from datasets import load_dataset  # type: ignore
 from os import makedirs
 from PIL import Image
 
@@ -9,9 +9,10 @@ from dinosaw.datasets.translate_featurise import translate_featurise
 from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
 from dinosaw.utils import closest_crop, convert_image
 
-from typing import cast, Literal
+from typing import cast
 from time import time
 
+FOLDER_NAME = "data"
 DEVICE = "cuda:1"
 NAME = "IN_reduced"
 IMG_L = 224
@@ -28,7 +29,7 @@ torch.cuda.empty_cache()
 
 for split in ("train", "val"):
     for which in ("imgs", "embeddings"):
-        makedirs(f"Dataset/{NAME}_{IMG_L}/{split}/{which}/", exist_ok=True)
+        makedirs(f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/{which}/", exist_ok=True)
 
 dv2 = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=True, device=DEVICE)
 dv2 = dv2.eval()
@@ -49,8 +50,8 @@ for i, dct in enumerate(ds):
 
     split = "val" if i < N_VAL else "train"
 
-    pil_img.save(f"Dataset/{NAME}_{IMG_L}/{split}/imgs/{i:05d}.png")
-    torch.save(translated_feats, f"Dataset/{NAME}_{IMG_L}/{split}/embeddings/{i:05d}.pt")
+    pil_img.save(f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/imgs/{i:05d}.png")
+    torch.save(translated_feats, f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/embeddings/{i:05d}.pt")
 
     if i % 50 == 0:
         end_t = time()
