@@ -56,16 +56,18 @@ def get_distance_matrix(
 AlibiSlopeType = Literal["fixed", "learned", "constant"]
 
 
-def get_alibi_slope(num_heads: int, slope_type: AlibiSlopeType = "constant") -> torch.Tensor | nn.Parameter:
+def get_alibi_slope(
+    num_heads: int, slope_type: AlibiSlopeType = "constant", device: str = "cpu"
+) -> torch.Tensor | nn.Parameter:
     m: torch.Tensor | nn.Parameter
     match slope_type:
         case "fixed":
             xs = (2**8) ** (1 / num_heads)
-            m = torch.tensor([1 / xs ** (i + 1) for i in range(num_heads)])
+            m = torch.tensor([1 / xs ** (i + 1) for i in range(num_heads)], device=device)
         case "learned":
-            m = torch.rand(num_heads)
+            m = torch.rand(num_heads, device=device)
         case "constant":
-            m = torch.ones(num_heads)
+            m = torch.ones(num_heads, device=device)
         case _:
             raise ValueError(f"Unknown slope type {type}")
 
@@ -101,20 +103,40 @@ class AlibiAttention(Attention):
             norm_layer=norm_layer,
         )
         self.fused_attn = False
-        m = get_alibi_slope(self.num_heads, slope_type=slope_type)
+        # m = get_alibi_slope(self.num_heads, slope_type=slope_type)
+        # if isinstance(m, torch.Tensor):
+        #     self.register_buffer("m", m)
+        # else:
+        #     self.register_parameter("m", m)
+        self.set_alibi_slope(slope_type=slope_type)
+
+        self.n_tokens_h = 16
+        self.n_tokens_w = 16
+
+        distance_matrix = get_distance_matrix(
+            self.n_tokens_h, self.n_tokens_w, 4, wrap=True, device=self.qkv.weight.device
+        )
+        self.register_buffer("distance_matrix", distance_matrix)
+
+        self.is_enabled = True
+
+    def set_alibi_slope(self, slope_type: AlibiSlopeType):
+        m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
         if isinstance(m, torch.Tensor):
             self.register_buffer("m", m)
         else:
             self.register_parameter("m", m)
 
-        self.n_tokens_h = 16
-        self.n_tokens_w = 16
-        distance_matrix = get_distance_matrix(self.n_tokens_h, self.n_tokens_w, 4, wrap=True, device=self.m.device)
-        self.register_buffer("distance_matrix", distance_matrix)
-
-        self.is_enabled = True
-
-    def set_distance_matrix_size(self, n_tokens_h: int, n_tokens_w: int, n_reg_tokens: int = 4, add_cls: bool = True):
+    def set_distance_matrix(
+        self,
+        n_tokens_h: int,
+        n_tokens_w: int,
+        n_reg_tokens: int = 4,
+        metric: str = "euclidean",
+        normalize: bool = True,
+        wrap: bool = True,
+        add_cls: bool = True,
+    ):
         if n_tokens_h == self.n_tokens_h and n_tokens_w == self.n_tokens_w:
             return  # no change
 
@@ -123,9 +145,12 @@ class AlibiAttention(Attention):
             n_tokens_w,
             n_reg_tokens=n_reg_tokens,
             add_cls=add_cls,
+            metric=metric,
+            normalize=normalize,
+            wrap=wrap,
             device=self.m.device,
         )
-        self.distance_matrix.copy_(distance_matrix)
+        self.distance_matrix = distance_matrix
         # self.distance_matrix = self.distance_matrix.to(self.m.dtype)
         self.n_tokens_h = n_tokens_h
         self.n_tokens_w = n_tokens_w
@@ -210,11 +235,23 @@ class AlibiBlock(Block):
             norm_layer=norm_layer,
         )
 
-    def set_distance_matrix_size(self, n_tokens_h: int, n_tokens_w: int, n_reg_tokens: int = 4, add_cls: bool = True):
-        self.attn.set_distance_matrix_size(
+    def set_distance_matrix(
+        self,
+        n_tokens_h: int,
+        n_tokens_w: int,
+        n_reg_tokens: int = 4,
+        metric: str = "euclidean",
+        normalize: bool = True,
+        wrap: bool = True,
+        add_cls: bool = True,
+    ):
+        self.attn.set_distance_matrix(
             n_tokens_h,
             n_tokens_w,
             n_reg_tokens=n_reg_tokens,
+            metric=metric,
+            normalize=normalize,
+            wrap=wrap,
             add_cls=add_cls,
         )
 
@@ -225,7 +262,7 @@ if __name__ == "__main__":
 
     h, w = 8, 30
 
-    dm = distance_matrix(
+    dm = get_distance_matrix(
         h, w, n_reg_tokens=0, add_cls=False, metric="euclidean", wrap=True, normalize=False, device="cpu"
     )
     dm_np = dm.detach().cpu().numpy()

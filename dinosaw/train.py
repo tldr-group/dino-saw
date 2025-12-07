@@ -25,11 +25,14 @@ ModelType = Literal["base", "plus_alibi"]
 
 @dataclass
 class Config:
+    experiment_name: str = "default_experiment"
+
     model_type: ModelType = "base"
     alibi_slope_type: AlibiSlopeType = "constant"
     norm_alibi: bool = True
     wrap_alibi: bool = True
     freeze_abs_pos_emb: bool = True
+    zero_pos_emb: bool = False
 
     n_epochs_warmup: int = 1
     n_epochs: int = 100
@@ -37,24 +40,50 @@ class Config:
     lr: float = 1e-4
     optim: Optims = "AdamW"
     loss_type: Losses = "MSE"
+    init_pos_enc_dropout: float = 0.0
 
     save_per: int = 2
 
 
 # TODO: make the wrapeprs take in various params; cache slope type etc on AlibiVitWrapper
-def get_model(model_type: ModelType, alibi_slope_type: AlibiSlopeType, device: torch.device) -> nn.Module:
+def get_model(
+    model_type: ModelType,
+    alibi_slope_type: AlibiSlopeType,
+    norm_alibi: bool,
+    wrap_alibi: bool,
+    n_epochs_warmup: int,
+    freeze_abs_pos_emb: bool,
+    zero_pos_emb: bool,
+    device: torch.device,
+) -> nn.Module:
     match model_type:
         case "base":
             model = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=device)
         case "plus_alibi":
             model = AlibiVitWrapper(
                 MODEL_LIST[1],
-                alibi_slope_type=alibi_slope_type,
                 add_flash_attn=False,
                 device=device,
+                slope_type=alibi_slope_type,
+                normalize=norm_alibi,
+                wrap=wrap_alibi,
             )
         case _:
             raise Exception(f"Unsupported model type {model_type}")
+
+    if freeze_abs_pos_emb or zero_pos_emb:
+        assert model.model.pos_embed is not None
+        model.model.pos_embed.requires_grad = False  # freeze pos embedding
+
+    if zero_pos_emb:
+        assert model.model.pos_embed is not None
+        model.model.pos_embed.data.zero_()
+
+    if model_type == "plus_alibi" and n_epochs_warmup <= 0:
+        model.set_alibi_enabled(True)
+    elif model_type == "plus_alibi" and n_epochs_warmup > 0:
+        model.set_alibi_enabled(False)
+
     return model
 
 
@@ -113,7 +142,17 @@ SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
-cfg = Config()
+# cfg = Config()
+cfg = Config(
+    experiment_name="alibi_zero_pos_emb_slower",
+    model_type="plus_alibi",
+    zero_pos_emb=True,
+    n_epochs=100,
+    batch_size=128,
+    n_epochs_warmup=-1,
+    init_pos_enc_dropout=1.0,
+    lr=1e-4,
+)
 
 try:
     rmtree(EXPR_PATH)
@@ -123,6 +162,7 @@ makedirs(EXPR_PATH, exist_ok=True)
 
 writer = SummaryWriter(EXPR_PATH)
 writer.add_hparams(cfg.__dict__, {})
+writer.add_text("desc", cfg.experiment_name)
 
 DEVICE = "cuda:1"
 train_ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "train", store_in_memory=True)
@@ -135,8 +175,18 @@ train_dl = DataLoader(train_ds, cfg.batch_size, True, drop_last=True)
 val_dl = DataLoader(val_ds, cfg.batch_size, True, drop_last=True)
 
 
-model = AlibiVitWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
-model.set_alibi_enabled(False)
+# model = AlibiVitWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
+# model.set_alibi_enabled(False)
+model = get_model(
+    cfg.model_type,
+    cfg.alibi_slope_type,
+    cfg.norm_alibi,
+    cfg.wrap_alibi,
+    cfg.n_epochs_warmup,
+    cfg.freeze_abs_pos_emb,
+    cfg.zero_pos_emb,
+    DEVICE,
+)
 
 optimizer = get_optim(cfg.optim, model, cfg.lr)
 loss_fn = get_loss(cfg.loss_type)
@@ -145,23 +195,26 @@ train_losses: list[float] = []
 val_losses: list[float] = []
 best_val_loss = 1e6
 
-dropout_prob = 0.0
+dropout_prob = cfg.init_pos_enc_dropout
 
 # TODO:
 # - pca vis for sqircle & dog (2 different res) for base dv2, trained and cleaned
-# - save model checkpoints!
+# - consider test dl for zero pos enc
 # - consider complilation
 # - consider LR scheduling
 
 for epoch in range(cfg.n_epochs):
-    if epoch > cfg.n_epochs_warmup:
+    if epoch == cfg.n_epochs_warmup:
         print("Enabling Alibi")
         model.set_alibi_enabled(True)
 
     if epoch > 2 * cfg.n_epochs_warmup:
-        n_dropout_epochs = cfg.n_epochs - 2 * cfg.n_epochs_warmup
-        dropout_prob = n_dropout_epochs / cfg.n_epochs
-        writer.add_scalar("dropout_prob", dropout_prob, epoch)
+        # schedule dropout
+        n_dropout_epochs_total = cfg.n_epochs - max(2 * cfg.n_epochs_warmup, 0)
+        n_dropout_epochs_current = epoch - max(2 * cfg.n_epochs_warmup, 0)
+
+        frac = n_dropout_epochs_current / n_dropout_epochs_total
+        dropout_prob = cfg.init_pos_enc_dropout + (1 - cfg.init_pos_enc_dropout) * frac
 
     train_loss = 0.0
     batch: torch.Tensor
@@ -181,8 +234,13 @@ for epoch in range(cfg.n_epochs):
         val_loss += loss
     val_loss /= len(val_dl)
 
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        torch.save(model.state_dict(), f"{EXPR_PATH}/best_model.pth")
+
     writer.add_scalar("loss/train", train_loss, epoch)
     writer.add_scalar("loss/val", val_loss, epoch)
+    writer.add_scalar("loss/dropout_prob", dropout_prob, epoch)
 
     print(f"Epoch {epoch:04d}/{cfg.n_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
