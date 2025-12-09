@@ -8,20 +8,16 @@ from torchvision.utils import make_grid
 import torchvision.transforms.functional as v2
 from dinosaw.models.vit_wrapper import (
     PretrainedViTWrapper,
+    AlibiVitWrapper,
     MODEL_LIST,
 )
-from .example_overwrite import AlibiBlock
+from .alibi import AlibiSlopeType
+#from .alibi import AlibiBlock
 from dinosaw.utils import do_2D_pca, normalize
 from .overwriting_methods import _pos_embed_no_pos
 from functools import partial
+from copy import deepcopy
 
-# hyperparams for LoRA
-lora_r = 12
-lora_alpha = 4
-lora_dropout = 0.05
-lora_qkv = True
-lora_proj = True
-lora_mlp = True
 
 
 def get_sinusoid_encoding(num_tokens, token_len):
@@ -42,50 +38,6 @@ def get_sinusoid_encoding(num_tokens, token_len):
     sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])
     sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2]) 
     return torch.FloatTensor(sinusoid_table).unsqueeze(0)
-
-class LoRALayer(torch.nn.Module):
-    '''
-        Layer that implements LoRA
-    '''
-    def __init__(self, in_dim, out_dim, rank, alpha):
-        super().__init__()
-        std_dev = 1 / torch.sqrt(torch.tensor(rank).float())
-        self.A = torch.nn.Parameter(torch.randn(in_dim, rank) * std_dev)
-        self.B = torch.nn.Parameter(torch.zeros(rank, out_dim))
-        self.alpha = alpha
-
-    def forward(self, x):
-        x = self.alpha * (x @ self.A @ self.B)
-        return x
-    
-class LinearWithLoRA(torch.nn.Module):
-    def __init__(self, linear, rank, alpha):
-        '''
-            implements addition between LoRA layer and linear layer for PEFT
-        '''
-        super().__init__()
-        self.linear = linear
-        self.lora = LoRALayer(
-            linear.in_features, linear.out_features, rank, alpha
-        )
-
-    def forward(self, x):
-        return self.linear(x) + self.lora(x)
-
-def add_lora(model):
-        for param in model.model.parameters():
-            param.requires_grad = False
-        
-        assign_lora = partial(LinearWithLoRA, rank=lora_r, alpha=lora_alpha)
-
-        for layer in model.model.blocks:
-            if lora_qkv:
-                layer.attn.qkv = assign_lora(layer.attn.qkv)
-            if lora_proj:
-                layer.attn.proj = assign_lora(layer.attn.proj)
-            if lora_mlp:
-                layer.mlp.fc1 = assign_lora(layer.mlp.fc1)
-                layer.mlp.fc2 = assign_lora(layer.mlp.fc2)
 
 def unfreeze_alibi_and_norms(model, unfreeze_layernorms=True, unfreeze_other_patterns=None):
     """
@@ -109,58 +61,66 @@ def unfreeze_alibi_and_norms(model, unfreeze_layernorms=True, unfreeze_other_pat
 class PEModel(L.LightningModule):
     def __init__(self, 
                  use_alibi: bool =  False, 
-                 remove_pos_embed = False, 
-                 loss_func: str =   "mse"
+                 remove_pos_embed: bool = False, 
+                 loss_func: str =   "mse",
+                 slope_type: AlibiSlopeType = "fixed",
+                 normalize:bool = True,
+                 wrap: bool = True
                 ):
         super().__init__()
+        self.save_hyperparameters()
         self.use_alibi = use_alibi
         self.last_validation_batch = None
         self.remove_pos_embed = remove_pos_embed
         self.loss_func = loss_func
+        self.slope_type = slope_type
+        self.normalize = normalize
+        self.wrap = wrap
 
     def configure_model(self):
         if self.use_alibi:
-            self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, block_fn=AlibiBlock, device="cuda").train()
+            #self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, block_fn=AlibiBlock, device="cuda").train()
+            self.vit = AlibiVitWrapper(
+                            MODEL_LIST[1], 
+                            add_flash_attn=False, 
+                            device="cuda", 
+                            slope_type=self.slope_type,
+                            normalize=self.normalize,
+                            wrap=self.wrap
+                            )
         else:
             self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device="cuda").train()
         
-        if self.remove_pos_embed:
-            import types
-            self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
-            self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False) #setting pos_encoding to zero without gradient
+        # if self.remove_pos_embed:
+        #     import types
+        #     self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
+        #     self.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.model.pos_embed), requires_grad=False) #setting pos_encoding to zero without gradient
 
+        self.vit.model.pos_embed.requires_grad = False
+        
+        if self.remove_pos_embed:
+            self.vit.model.pos_embed.data.zero_()
+        
         self.base_pos_embed = self.vit.model.pos_embed
         self.base_pos_embed.requires_grad = False
-        
+
+        # last_block = self.vit.model.blocks[-1]
+
+        # new_block = deepcopy(last_block)
+        # self.vit.model.blocks.append(new_block)
+
         # for p in self.vit.parameters():
         #     p.requires_grad = False
 
         # unfreeze_alibi_and_norms(model = self.vit, unfreeze_layernorms=True, unfreeze_other_patterns=["attn"])
 
 
-        #add_lora(self.vit)
-
-        # new_pos_embedding = get_sinusoid_encoding(1369, 384).to(torch.float16) # needs to have the shape [1, 1369, 384]
-        # new_pos_embedding
-        # device = torch.get_device(self.vit.model.pos_embed)
-        # del self.vit.model.pos_embed
-        # self.vit.model.pos_embed = new_pos_embedding.to(device)
-
-        # import types
-        # self.vit._pos_embed = types.MethodType(_pos_embed_no_pos, self.vit)
-
     def training_step(self, batch):
         input, target = batch
-        #input, target = input.to(torch.float32), target.to(torch.float32)
-        #input = torch.nan_to_num(input, nan=0.0, posinf=1e6, neginf=-1e6)
-        output = self.vit.forward_features(input, make_2D=True)
-        #print(output, target.shape)
-        
+        output = self.vit.forward_features(input, make_2D=True)#, attn_mask=self.attn_mask)
         
         loss = self.calc_loss(output, target)
-        
-        #print(self.vit.model.pos_drop)
-        #print(loss)
+
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss, sync_dist=True)
         return loss
@@ -173,7 +133,7 @@ class PEModel(L.LightningModule):
 
     def validation_step(self, batch):
         input, target = batch
-        output = self.vit.forward_features(input, make_2D=True)
+        output = self.vit.forward_features(input, make_2D=True)#, attn_mask=self.attn_mask)
         #print( self.vit.model.pos_embed)
         loss = self.calc_loss(output, target)
         self.log("val_loss", loss, sync_dist=True)
@@ -186,15 +146,15 @@ class PEModel(L.LightningModule):
     def on_validation_epoch_end(self):
         tensorboard = self.logger.experiment
         input, output, target = self.last_validation_batch
+        self.vit.model.pos_embed = self.base_pos_embed
         tensorboard.add_image("intermediate_output", self.gen_vis_grid(input[:2], output[:2], target[:2]), self.current_epoch)
     
-    def on_validation_end(self):
-        # returning it to normal
-        self.vit.model.pos_embed = self.base_pos_embed
-        return super().on_validation_end()
+    # def on_validation_end(self):
+    #     # returning it to normal
+    #     return super().on_validation_end()
     
     def forward(self, input):
-        return self.vit.forward_features(input, make_2D=True)
+        return self.vit.forward_features(input, make_2D=True)#, attn_mask=attn_mask)
     
     def gen_vis_grid(self, input, output, target):
         res = []
@@ -236,5 +196,5 @@ class PEModel(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=1e-5)
+        optimizer = optim.AdamW(self.parameters(), lr=1e-6)
         return optimizer
