@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 Optims = Literal["Adam", "AdamW", "SGD"]
-Losses = Literal["MSE", "MAE"]
+Losses = Literal["MSE", "MAE", "cosine", "CE"]
 ModelType = Literal["base", "plus_alibi"]
 
 
@@ -31,7 +31,7 @@ class Config:
     alibi_slope_type: AlibiSlopeType = "constant"
     norm_alibi: bool = True
     wrap_alibi: bool = True
-    freeze_abs_pos_emb: bool = True
+    freeze_pos_emb: bool = True
     zero_pos_emb: bool = False
 
     n_epochs_warmup: int = 1
@@ -105,6 +105,13 @@ def get_loss(loss_type: Losses, reduction: str = "mean"):
             return nn.MSELoss(reduction=reduction)
         case "MAE":
             return nn.L1Loss(reduction=reduction)
+        case "cosine":
+            cosine_sim = nn.CosineSimilarity(dim=1)
+
+            def cosine_sim_wrapper(x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
+                return (1.0 - cosine_sim(x1, x2)).mean()
+
+            return cosine_sim_wrapper
         case _:
             raise Exception(f"Unsupported loss {loss_type}")
 
@@ -144,11 +151,13 @@ seed_everything(SEED)
 
 # cfg = Config()
 cfg = Config(
-    experiment_name="alibi_zero_pos_emb_slower",
+    experiment_name="alibi_zero_cosine_loss",
     model_type="plus_alibi",
     zero_pos_emb=True,
+    freeze_pos_emb=True,
     n_epochs=100,
     batch_size=128,
+    loss_type="cosine",
     n_epochs_warmup=-1,
     init_pos_enc_dropout=1.0,
     lr=1e-4,
@@ -165,8 +174,9 @@ writer.add_hparams(cfg.__dict__, {})
 writer.add_text("desc", cfg.experiment_name)
 
 DEVICE = "cuda:1"
-train_ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "train", store_in_memory=True)
-val_ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "val", store_in_memory=True)
+CACHE = True
+train_ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "train", store_in_memory=CACHE)
+val_ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "val", store_in_memory=CACHE)
 
 print(f"Train dataset size: {len(train_ds)}")
 print(f"Validation dataset size: {len(val_ds)}")
@@ -183,7 +193,7 @@ model = get_model(
     cfg.norm_alibi,
     cfg.wrap_alibi,
     cfg.n_epochs_warmup,
-    cfg.freeze_abs_pos_emb,
+    cfg.freeze_pos_emb,
     cfg.zero_pos_emb,
     DEVICE,
 )
