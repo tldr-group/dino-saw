@@ -6,102 +6,17 @@ from typing import Callable, Optional
 import torch.nn as nn
 import math
 from dinosaw.models import PEModel
-from dinosaw.datasets import DatasetTrainStudent, DatasetValStudent, GenericDatasetStudent
+from dinosaw.datasets import (
+    GenericDatasetStudent,
+)
 import numpy as np
-from dinosaw.models.example_overwrite import get_alibi_slope, distance_matrix
+from dataclasses import dataclass, field
+from dinosaw.models.alibi import AlibiSlopeType
+from typing import Literal
 
-class AbsPEFader(Callback):
-    def __init__(
-        self,
-        start: float = 1.0,       # Start-Skale
-        mid: float = 0.02,        # Ziel am Ende der schnellen Phase
-        end: float = 0.0,         # End-Skale
-        steps_fast: int = 1000,   # schnelle Phase: Anzahl Optimizer-Schritte
-        steps_slow: int = 20000,  # langsame Phase: Anzahl Optimizer-Schritte
-        slow_kind: str = "cosine",  # "cosine", "linear" oder "log"
-        log_k: float = 9.0,       # Form-Parameter für logarithmischen Abfall (größer = schneller früher Abfall)
-        freeze_pos_embed: bool = True,
-        restore_on_fit_end: bool = False
-    ):
-        super().__init__()
-        self.start = float(start)
-        self.mid = float(mid)
-        self.end = float(end)
-        self.steps_fast = max(1, int(steps_fast))
-        self.steps_slow = max(1, int(steps_slow))
-        self.slow_kind = slow_kind
-        self.log_k = float(log_k)
-        self.freeze_pos_embed = freeze_pos_embed
-        self.restore_on_fit_end = restore_on_fit_end
-        self.vit = None
-
-    def _s(self, step: int) -> float:
-        # 2-Phasen-Schedule:
-        # Phase 1: linear start -> mid über steps_fast
-        # Phase 2: linear/cosine/logarithmisch mid -> end über steps_slow
-        if step <= self.steps_fast:
-            t = step / self.steps_fast
-            p = self.start + t * (self.mid - self.start)
-        else:
-            t = min(1.0, (step - self.steps_fast) / self.steps_slow)
-            if self.slow_kind == "linear":
-                p = self.mid + t * (self.end - self.mid)
-            elif self.slow_kind == "cosine":
-                # cosine-anneal: 1 -> 0 auf [0,1]
-                cos_t = 0.5 * (1 + math.cos(math.pi * t))
-                p = self.end + (self.mid - self.end) * cos_t
-            elif self.slow_kind in ("log", "logarithmic", "logarithmisch"):
-                # Normalisierte Log-Kurve z in [0,1]
-                # z(0)=0, z(1)=1; größere log_k -> stärkerer früher Abfall
-                if self.mid == self.end:
-                    p = self.end
-                else:
-                    k = max(1e-6, self.log_k)
-                    z = math.log1p(k * t) / math.log1p(k)   # 0..1, konkav
-                    p = self.mid + (self.end - self.mid) * z
-            else:
-                raise ValueError(f"Unknown slow_kind")
-        return float(min(1.0, max(0.0, p)))
-
-    def _find_vit(self, pl_module):
-        # Passe das an deine Struktur an: z. B. pl_module.vit.model
-        vit = getattr(getattr(pl_module, "vit", None), "model", None)
-        if vit is None or not hasattr(vit, "pos_embed"):
-            for m in pl_module.modules():
-                if hasattr(m, "pos_embed"):
-                    vit = m
-                    break
-        if vit is None or not hasattr(vit, "pos_embed"):
-            raise RuntimeError("Could not find VisionTransformer with a 'pos_embed' parameter.")
-        return vit
-
-    def on_fit_start(self, trainer, pl_module):
-        self.vit = self._find_vit(pl_module)
-        # Ursprüngliche PE sichern (wird nicht mitgespeichert)
-        if not hasattr(self.vit, "pos_embed_base"):
-            self.vit.register_buffer("pos_embed_base", self.vit.pos_embed.detach().clone(), persistent=False)
-        if self.freeze_pos_embed:
-            self.vit.pos_embed.requires_grad_(False)
-
-    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
-        s = self._s(trainer.global_step)
-        with torch.no_grad():
-            self.vit.pos_embed.copy_(self.vit.pos_embed_base * s)
-        pl_module.log("abs_pe_scale", s, prog_bar=True, logger=True)
-
-    def on_validation_start(self, trainer, pl_module):
-        # Standard: mit aktuellem s validieren.
-        # Wenn du bei Val immer s=1 willst, hier einkommentieren:
-        # with torch.no_grad():
-        #     self.vit.pos_embed.copy_(self.vit.pos_embed_base)
-        pass
-
-    def on_fit_end(self, trainer, pl_module):
-        with torch.no_grad():
-            if self.restore_on_fit_end:
-                self.vit.pos_embed.copy_(self.vit.pos_embed_base)
-            else:
-                self.vit.pos_embed.copy_(self.vit.pos_embed_base * self.end)
+Optims = Literal["Adam", "AdamW", "SGD"]
+Losses = Literal["cosine_embedding", "mse"]
+DropSchedule = Literal["linear", "cosine", "step"]
 
 
 class PositionalDropoutScheduler(Callback):
@@ -123,15 +38,20 @@ class PositionalDropoutScheduler(Callback):
         self.clamp = clamp
         self.log_name = log_name
         self._drop_module: Optional[nn.Module] = None
-        self.vit=None
+        self.vit = None
 
-    def setup(self, trainer: L.Trainer, pl_module: L.LightningModule, stage: Optional[str] = None):
+    def setup(
+        self,
+        trainer: L.Trainer,
+        pl_module: L.LightningModule,
+        stage: Optional[str] = None,
+    ):
         # Resolve the dropout module
         self._drop_module = self._resolve_target(pl_module, self.target_attr)
         if self._drop_module is None or not hasattr(self._drop_module, "p"):
-            raise RuntimeError(f"Could not find a Dropout with attribute 'p' at'")
-
-        
+            raise RuntimeError(
+                f"Could not find a Dropout with attribute 'p' at {self._drop_module} "
+            )
 
         # Determine total steps once we know the trainer
         if self.max_steps is None:
@@ -150,19 +70,25 @@ class PositionalDropoutScheduler(Callback):
                     vit = m
                     break
         if vit is None or not hasattr(vit, "pos_embed"):
-            raise RuntimeError("Could not find VisionTransformer with a 'pos_embed' parameter.")
+            raise RuntimeError(
+                "Could not find VisionTransformer with a 'pos_embed' parameter."
+            )
         return vit
 
     def on_fit_start(self, trainer, pl_module):
         self.vit = self._find_vit(pl_module)
 
-    def on_train_batch_start(self, trainer: L.Trainer, pl_module: L.LightningModule, batch, batch_idx: int):
+    def on_train_batch_start(
+        self, trainer: L.Trainer, pl_module: L.LightningModule, batch, batch_idx: int
+    ):
         step = trainer.global_step  # 0-based
         new_p = self._compute_p(step, self.max_steps)
         if new_p == 1:
             with torch.no_grad():
-                self.vit.pos_embed = torch.nn.Parameter(torch.zeros_like(self.vit.pos_embed))
-        #self._drop_module.p = new_p
+                self.vit.pos_embed = torch.nn.Parameter(
+                    torch.zeros_like(self.vit.pos_embed)
+                )
+        # self._drop_module.p = new_p
         self.vit.pos_drop = torch.nn.modules.Dropout(p=new_p)
         # Optional logging
         pl_module.log(self.log_name, new_p, on_step=True, prog_bar=True, logger=True)
@@ -184,28 +110,28 @@ class PositionalDropoutScheduler(Callback):
                 return m
         return None
 
-    
 
 class BatchDropout(Callback):
-    def __init__(self, 
-                 p_start:int =0,
-                 p_end:int=1,
-                 schedule= "linear",
-                 max_steps:int = None,
-                 clamp: tuple[float, float] = (0.0, 1.0),
-                 log_name: str = "pos_drop_p",
-                 warmup_steps:int=0
-                ):
+    def __init__(
+        self,
+        p_start: int = 0,
+        p_end: int = 1,
+        schedule="linear",
+        max_steps: int = None,
+        clamp: tuple[float, float] = (0.0, 1.0),
+        log_name: str = "pos_drop_p",
+        warmup_steps: int = 0,
+    ):
         self.p_start = p_start
         self.p_end = p_end
         self.schedule = schedule
-        self.max_steps=max_steps
+        self.max_steps = max_steps
         self.clamp = clamp
         self.log_name = log_name
         self.warmup_steps = warmup_steps
 
         self.base_pos_embed = None
-        
+
     def setup(self, trainer, pl_module, stage):
         if self.max_steps is None:
             self.max_steps = trainer.estimated_stepping_batches or trainer.max_steps
@@ -218,7 +144,7 @@ class BatchDropout(Callback):
         if self.warmup_steps and step < self.warmup_steps:
             return 0.0
         else:
-            step=step-self.warmup_steps
+            step = step - self.warmup_steps
 
         # Normalize step to [0, 1]
         denom = max(1, (max_steps or 1) - 1)
@@ -229,7 +155,9 @@ class BatchDropout(Callback):
         elif self.schedule == "linear":
             p = self.p_start + (self.p_end - self.p_start) * t
         elif self.schedule == "cosine":
-            p = self.p_end - (self.p_end - self.p_start) * 0.5 * (1.0 + math.cos(math.pi * t))
+            p = self.p_end - (self.p_end - self.p_start) * 0.5 * (
+                1.0 + math.cos(math.pi * t)
+            )
         elif self.schedule == "step":
             total_bins = 4
             bins = int(math.floor(t * total_bins))  # 0..10
@@ -241,84 +169,163 @@ class BatchDropout(Callback):
             else:
                 p = max(p, self.p_end)
         else:
-            raise ValueError(f"Unknown schedule:")
+            raise ValueError(f"Unknown schedule: {self.schedule}")
 
         lo, hi = self.clamp
         return float(max(lo, min(hi, p)))
-        
 
     def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
         step = trainer.global_step
         current_p = self._compute_p(step=step, max_steps=self.max_steps)
         if np.random.random(1) < current_p:
-            pl_module.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(pl_module.vit.model.pos_embed), requires_grad=False)
+            pl_module.vit.model.pos_embed = torch.nn.Parameter(
+                torch.zeros_like(pl_module.vit.model.pos_embed), requires_grad=False
+            )
         else:
             pl_module.vit.model.pos_embed = pl_module.base_pos_embed
 
-        pl_module.log(self.log_name, current_p, on_step=True, prog_bar=True, logger=True)
+        pl_module.log(
+            self.log_name, current_p, on_step=True, prog_bar=True, logger=True
+        )
         return super().on_train_batch_start(trainer, pl_module, batch, batch_idx)
-    
 
 
+@dataclass
+class Config:
+    # logging related
+    experiment_name: str = "default_experiment"
+    log_every_n_steps: int = 2
+    val_check_interval: float = 0.1
 
-        
+    # Alibi related
+    add_alibi: bool = False
+    alibi_slope_type: AlibiSlopeType = "constant"
+    norm_alibi: bool = True
+    wrap_alibi: bool = True
 
-def main():
-    train_loader = torch.utils.data.DataLoader(GenericDatasetStudent(base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224", split="train"), batch_size=128, num_workers=48, pin_memory=True, shuffle=True)
-    val_loader = torch.utils.data.DataLoader(GenericDatasetStudent(base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224", split="val"), batch_size=32, num_workers=8, pin_memory=True, shuffle=True)
+    # abs embed realted
+    freeze_abs_pos_emb: bool = True
+    zero_pos_emb: bool = False
+    use_batch_drop: bool = False
+    batch_drop_steps: int = 5_000
+    batch_drop_schedule: DropSchedule = "linear"
 
-    #name = "Adam_batch_8_mse_after_train_Norm+scale_lr_e-5"
-    name = "continue_long_run_AdamW_batch_128_lr_1e-4->1e-6_mse_direct_batch_drop_m=1"
+    # training hparams
+    max_epochs: int = 100
+    batch_size: int = 256
+    lr: float = 1e-4
+    optim: Optims = "AdamW"
+    loss_type: Losses = "mse"
+    accelerator: str = "gpu"
+    which_device: list[int] = field(default_factory=lambda: [0])
+
+    # altering the model
+    add_block: bool = False
+    unfreeze_norms: bool = False  # if True freezes the rest of the model
+    unfreeze_pattern: list[str] = None  # if not None freezes the rest of the model
+
+    # continue training
+    continue_training: bool = False
+    ckpt_path: str = None
+
+
+def main(cfg: Config):
+    train_loader = torch.utils.data.DataLoader(
+        GenericDatasetStudent(
+            base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224",
+            split="train",
+        ),
+        batch_size=cfg.batch_size,
+        num_workers=48,
+        pin_memory=True,
+        shuffle=True,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        GenericDatasetStudent(
+            base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224",
+            split="val",
+        ),
+        batch_size=32,
+        num_workers=8,
+        pin_memory=True,
+        shuffle=True,
+    )
+
+    # name = "continue_long_run_AdamW_batch_128_lr_1e-4->1e-6_mse_direct_batch_drop_m=1"
+    name = cfg.experiment_name
 
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
-        dirpath='trained_models_in_steps_new/',
-        filename=name + '-{epoch:02d}-{val_loss:.2f}',
+        monitor="val_loss",
+        dirpath="trained_models_in_steps_new/",
+        filename=name + "-{epoch:02d}-{val_loss:.2f}",
         mode="min",
     )
-    endcheckpoint_callback = ModelCheckpoint( 
-        dirpath='trained_models_in_steps_new/',
-        filename=name + '-{epoch:02d}-{val_loss:.2f}_last_epoch',
+    endcheckpoint_callback = ModelCheckpoint(
+        dirpath="trained_models_in_steps_new/",
+        filename=name + "-{epoch:02d}-{val_loss:.2f}_last_epoch",
     )
-    
+
     from pytorch_lightning.loggers import TensorBoardLogger
+
     logger = TensorBoardLogger("lightning_logs", name=name)
 
+    if cfg.use_batch_drop:
+        callbacks = [
+            checkpoint_callback,
+            BatchDropout(
+                p_start=0,
+                p_end=1,
+                schedule=cfg.batch_drop_schedule,
+                max_steps=cfg.batch_drop_steps,
+            ),
+            endcheckpoint_callback,
+        ]
+    else:
+        callbacks = [
+            checkpoint_callback,
+            endcheckpoint_callback,
+        ]
+
     trainer = Trainer(
-        devices=1, 
-        max_epochs=500, 
-        gradient_clip_val=1.0, 
-        callbacks=[
-            checkpoint_callback, 
-            #PositionalDropoutScheduler(target_attr="model.pos_drop", p_start=0, p_end=1, schedule="step", max_steps=10_000),
-            #BatchDropout(max_steps=2_000, schedule="linear", warmup_steps=0),
-            endcheckpoint_callback
-        ], 
-        log_every_n_steps=2, 
-        accelerator="gpu", 
-        val_check_interval=0.1,
-        logger = logger
-    ) #, strategy="ddp" #AbsPEFader(start=1, end=0.0, total_steps=7_000, freeze_pos_embed=True),
+        devices=cfg.which_device,
+        max_epochs=cfg.max_epochs,
+        gradient_clip_val=1.0,
+        callbacks=callbacks,
+        log_every_n_steps=cfg.log_every_n_steps,
+        accelerator=cfg.accelerator,
+        val_check_interval=cfg.val_check_interval,
+        logger=logger,
+    )  # , strategy="ddp" #AbsPEFader(start=1, end=0.0, total_steps=7_000, freeze_pos_embed=True),
 
-    # model = PEModel.load_from_checkpoint("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/nothing-epoch=39-val_loss=0.01.ckpt", remove_pos_embed=False, use_alibi=True, strict=False).to("cuda")
-    # model_alibi = PEModel.load_from_checkpoint("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/added_alibi-epoch=38-val_loss=0.01.ckpt", remove_pos_embed=False, use_alibi=True, strict=False).to("cuda")
-    # model_tuned = PEModel.load_from_checkpoint("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/added_alibi_gradual_fade_abs_pos_embed-epoch=09-val_loss=0.01.ckpt", use_alibi=True, remove_pos_embed=False, strict=False).to("cuda")
+    if cfg.continue_training:
+        assert cfg.ckpt_path is not None 
 
-    #attn_mask = (1 * distance_matrix((224//14)**2, wrap=True, metric="euclidean").half()).unsqueeze(0).to("cuda")
-        
     trainer.fit(
-        # model=PEModel.load_from_checkpoint(
-        #     "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/test_callback_Adam_batch_8_mse_batch_drop_0.5_lr_e-5-epoch=39-val_loss=0.25_last_epoch.ckpt", 
-        #     remove_pos_embed=True,
-        #     use_alibi=True, 
-        #     strict=False,
-        #     loss_func="mse"
-        # ),
-        model = PEModel(loss_func="mse", use_alibi=True, remove_pos_embed=True, slope_type="constant", normalize=True, wrap=True),#, attn_mask=attn_mask),
-        ckpt_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/continue_as_long_run_AdamW_batch_128_lr_1e-4_mse_direct_batch_drop_m=1-epoch=388-val_loss=0.09.ckpt",   
-        train_dataloaders=train_loader, 
-        val_dataloaders=val_loader)
+        model=PEModel(
+            loss_func=cfg.loss_type,
+            optimizer=cfg.optim,
+            lr=cfg.lr,
+            remove_pos_embed=cfg.zero_pos_emb,
+            freeze_abs_pos_embed=cfg.freeze_abs_pos_emb,
+            use_alibi=cfg.add_alibi,
+            slope_type=cfg.alibi_slope_type,
+            normalize=cfg.norm_alibi,
+            wrap=cfg.norm_alibi,
+            add_block=cfg.add_block,
+            unfreeze_norms=cfg.unfreeze_norms,
+            unfreeze_pattern=cfg.unfreeze_pattern,
+        ),
+        ckpt_path=cfg.ckpt_path if cfg.continue_training else None,
+        train_dataloaders=train_loader,
+        val_dataloaders=val_loader,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    cfg = Config(
+        experiment_name="testing_configs",
+        batch_size=128,
+        add_alibi=False,
+        which_device=[1],
+    )
+    main(cfg)
