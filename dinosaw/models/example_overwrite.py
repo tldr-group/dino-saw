@@ -44,7 +44,7 @@ def distance_matrix(
         torch.arange(H, device=device),#, dtype=torch.float32),
         torch.arange(W, device=device),#, dtype=torch.float32),
         indexing='ij'
-    ), dim=-1).reshape(-1, 2)  # (N, 2)
+    ), dim=-1).reshape(-1, 2).half()  # (N, 2)
 
     # Paarweise Differenzen
     diff = coords.unsqueeze(1) - coords.unsqueeze(0)  # (N, N, 2)
@@ -68,7 +68,7 @@ def distance_matrix(
     #print(D.shape)
     D = F.pad(D, (5,0,5,0), mode="constant") # changed from append to prepend
     #print(D.shape)
-    return D.to("cuda")
+    return D
 
 class AlibiAttention(Attention):
 
@@ -85,7 +85,7 @@ class AlibiAttention(Attention):
     ) -> None:
         super().__init__(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, proj_bias=proj_bias, qk_norm=qk_norm, attn_drop=attn_drop, proj_drop=proj_drop, norm_layer=norm_layer)
         self.fused_attn = False
-        self.register_buffer("m", get_alibi_slope(self.num_heads))
+        #self.register_buffer("m", get_alibi_slope(self.num_heads))#torch.tensor(1)
         #self.m = get_alibi_slope(self.num_heads).to(self.device)
 
     def forward(self, x: Tensor, attn_mask: None) -> Tensor:
@@ -99,13 +99,14 @@ class AlibiAttention(Attention):
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
+        attn_mask = attn_mask.to(q.dtype)
 
         if self.fused_attn:
-            bias = (self.m * distance_matrix(N, wrap=True, metric="euclidean")).unsqueeze(0) # Alibi bias
+            #bias = (self.m * distance_matrix(N, wrap=True, metric="euclidean")).unsqueeze(0) # Alibi bias
             x = F.scaled_dot_product_attention(
                 q, k, v,
                 dropout_p=self.attn_drop.p if self.training else 0.,
-                attn_mask=bias
+                attn_mask=attn_mask #bias
             )
         else:
             q = q * self.scale
@@ -113,13 +114,16 @@ class AlibiAttention(Attention):
             attn = q @ k.transpose(-2, -1)
 
             #print(attn.shape)
-            bias = (self.m * distance_matrix(N, wrap=True, metric="euclidean")).unsqueeze(0) # Alibi bias
+            # bias = (self.m * distance_matrix(N, wrap=True, metric="euclidean")).unsqueeze(0)# Alibi bias
             
             #print(bias.shape)
-            attn = attn + bias
+            attn = attn + attn_mask
+
+            #print(attn_mask)
 
             attn = attn.softmax(dim=-1)
             attn = self.attn_drop(attn)
+            attn = attn.to(v.dtype)
             x = attn @ v
 
         x = x.transpose(1, 2).reshape(B, N, C)
