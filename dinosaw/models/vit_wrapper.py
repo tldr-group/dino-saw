@@ -16,6 +16,8 @@ from typing import Callable, Literal
 from timm.data import create_transform, resolve_data_config
 from timm.models.vision_transformer import VisionTransformer, Attention, Block
 
+from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType
+
 FLASH_ATTN_INSTALLED = False
 try:
     from flash_attn import flash_attn_qkvpacked_func
@@ -199,28 +201,133 @@ class PretrainedViTWrapper(nn.Module):
             intermediates_only=True,
         )
 
-    def forward(self, x: torch.Tensor):
-        return self.model(x)
+    def forward(self, x: torch.Tensor, attn_mask=None):
+        return self.model(x, attn_mask)
 
-    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False) -> torch.Tensor:
+    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, attn_mask=None) -> torch.Tensor:
         b, _, h, w = x.shape
         p = self.patch_size
         s = self.stride
         n_patch_h, n_patch_w = (h - p) // s + 1, (w - p) // s + 1
 
         if add_reg:
-            feats = self.model.forward_features(x)
+            feats = self.model.forward_features(x, attn_mask=attn_mask)
         else:  # ignore CLS + reg tokens
-            feats = self.model.forward_features(x)[:, self.n_reg_tokens + 1 :]
+            feats = self.model.forward_features(x, attn_mask=attn_mask)[:, self.n_reg_tokens + 1 :]
         feats = feats.permute((0, 2, 1))
 
         if make_2D and not add_reg:
             feats = feats.reshape((b, -1, n_patch_h, n_patch_w))
         return feats
+    
+
+class AlibiVitWrapper(PretrainedViTWrapper):
+    def __init__(
+        self,
+        model_identifier: str = "vit_small_patch14_dinov2.lvd142m",
+        stride: int = 14,
+        add_flash_attn: bool = True,
+        dynamic_img_size: bool = True,
+        dynamic_img_pad: bool = False,
+        device: str = "cpu",
+        slope_type: AlibiSlopeType = "constant",
+        n_reg_tokens: int = 4,
+        metric: str = "euclidean",
+        normalize: bool = True,
+        wrap: bool = True,
+        add_cls: bool = True,
+        **kwargs,
+    ):
+        super().__init__(
+            model_identifier=model_identifier,
+            stride=stride,
+            add_flash_attn=add_flash_attn,
+            dynamic_img_size=dynamic_img_size,
+            dynamic_img_pad=dynamic_img_pad,
+            device=device,
+            block_fn=AlibiBlock,
+            **kwargs,
+        )
+        self.model.pos_embed.requires_grad = False  # freeze pos embedding
+        self.slope_type = slope_type
+        self.n_reg_tokens = n_reg_tokens
+        self.metric = metric
+        self.normalize = normalize
+        self.wrap = wrap
+        self.add_cls = add_cls
+
+        for blk in self.model.blocks:
+            blk: AlibiBlock
+            blk.attn.set_alibi_slope(slope_type=self.slope_type)
+
+    def set_distance_matrices(
+        self,
+        n_tokens_h: int,
+        n_tokens_w: int,
+        n_reg_tokens: int = 4,
+        metric: str = "euclidean",
+        normalize: bool = True,
+        wrap: bool = True,
+        add_cls: bool = True,
+    ):
+        for blk in self.model.blocks:
+            blk: AlibiBlock
+            blk.set_distance_matrix(
+                n_tokens_h=n_tokens_h,
+                n_tokens_w=n_tokens_w,
+                n_reg_tokens=n_reg_tokens,
+                metric=metric,
+                normalize=normalize,
+                wrap=wrap,
+                add_cls=add_cls,
+            )
+        self.n_reg_tokens = n_reg_tokens
+        self.metric = metric
+        self.normalize = normalize
+        self.wrap = wrap
+        self.add_cls = add_cls
+
+    def set_alibi_enabled(self, enabled: bool):
+        for blk in self.model.blocks:
+            blk: AlibiBlock
+            blk.attn.is_enabled = enabled
+
+    def forward(self, x: torch.Tensor):
+        # TODO: set alibi distance matrix size
+        return self.model(x)
+
+    def forward_features(
+        self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, abs_pos_enc_drop_prob: float = 0.0
+    ) -> torch.Tensor:
+        assert self.model.pos_embed is not None
+        b, _, h, w = x.shape
+        p = self.patch_size
+        s = self.stride
+        n_patch_h, n_patch_w = (h - p) // s + 1, (w - p) // s + 1
+
+        self.set_distance_matrices(
+            n_tokens_h=n_patch_h,
+            n_tokens_w=n_patch_w,
+            n_reg_tokens=self.n_reg_tokens,
+            metric=self.metric,
+            normalize=self.normalize,
+            wrap=self.wrap,
+            add_cls=self.add_cls,
+        )
+
+        do_abs_pos_enc_drop = torch.rand(1).item() <= abs_pos_enc_drop_prob
+        cached_pos_embed_data = self.model.pos_embed.data.clone()
+        if do_abs_pos_enc_drop and self.training:
+            self.model.pos_embed.data.zero_()
+
+        feats = super().forward_features(x, make_2D, add_reg)
+        self.model.pos_embed.data.copy_(cached_pos_embed_data)
+        return feats
+
 
 
 if __name__ == "__main__":
-    dv2 = PretrainedViTWrapper("fit3D_vit_small_patch14_reg4_dinov2.lvd142m", 7)
+    dv2 = AlibiVitWrapper("fit3D_vit_small_patch14_reg4_dinov2.lvd142m", add_flash_attn=False)
     x = torch.zeros((1, 3, 14 * 4, 14 * 4))
-    o = dv2.forward_features(x, True, False)
+    o = dv2.forward_features(x, True, False, abs_pos_enc_drop_prob=0.5)
     print(o.shape)
