@@ -13,6 +13,11 @@ from .alibi import AlibiSlopeType
 from dinosaw.utils import do_2D_pca, normalize
 from copy import deepcopy
 
+from typing import Literal
+
+Optims = Literal["Adam", "AdamW", "SGD"]
+Losses = Literal["cosine_embedding", "mse"]
+
 
 def unfreeze_alibi_and_norms(
     model, unfreeze_layernorms=True, unfreeze_other_patterns=None
@@ -46,50 +51,59 @@ class PEModel(L.LightningModule):
         self,
         use_alibi: bool = False,
         remove_pos_embed: bool = False,
-        loss_func: str = "mse",
+        freeze_abs_pos_embed: bool = True,
+        loss_func: Losses = "mse",
+        optimizer: Optims = "AdamW",
+        lr: float = 1e-4,
         slope_type: AlibiSlopeType = "fixed",
         normalize: bool = True,
         wrap: bool = True,
         add_block: bool = False,
         unfreeze_norms: bool = False,
-        pattern: list[str] = None,
+        unfreeze_pattern: list[str] = None,
     ):
         super().__init__()
         self.save_hyperparameters()
         self.use_alibi = use_alibi
-        self.last_validation_batch = None
         self.remove_pos_embed = remove_pos_embed
+        self.freeze_abs_pos_embed = freeze_abs_pos_embed
         self.loss_func = loss_func
+        self.optim = optimizer
+        self.lr = lr
         self.slope_type = slope_type
         self.normalize = normalize
         self.wrap = wrap
         self.add_block = add_block
         self.unfreeze_norms = unfreeze_norms
-        self.pattern = pattern
+        self.pattern = unfreeze_pattern
+
+        self.last_validation_batch = None
 
     def configure_model(self):
         if self.use_alibi:
-            # self.vit = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, block_fn=AlibiBlock, device="cuda").train()
             self.vit = AlibiVitWrapper(
                 MODEL_LIST[1],
                 add_flash_attn=False,
-                device="cuda",
+                device=self.device,
                 slope_type=self.slope_type,
                 normalize=self.normalize,
                 wrap=self.wrap,
             )
         else:
             self.vit = PretrainedViTWrapper(
-                MODEL_LIST[1], add_flash_attn=False, device="cuda"
+                MODEL_LIST[1], add_flash_attn=False, device=self.device
             ).train()
 
-        self.vit.model.pos_embed.requires_grad = False
+        if self.freeze_abs_pos_embed:
+            self.vit.model.pos_embed.requires_grad = False
 
         if self.remove_pos_embed:
             self.vit.model.pos_embed.data.zero_()
 
         self.base_pos_embed = self.vit.model.pos_embed
-        self.base_pos_embed.requires_grad = False
+
+        if self.freeze_abs_pos_embed:
+            self.base_pos_embed.requires_grad = False
 
         if self.add_block:
             last_block = self.vit.model.blocks[-1]
@@ -194,16 +208,27 @@ class PEModel(L.LightningModule):
         """
         calculates loss function for the model
         """
-        if self.loss_func == "cosine_embedding":
-            loss = nn.functional.cosine_embedding_loss(
-                output.flatten(1),
-                target.squeeze().flatten(1),
-                torch.ones((output.shape[0])).to("cuda"),
-            )
-        else:
-            loss = nn.functional.mse_loss(output, target.squeeze())
+        match self.loss_func:
+            case "cosine_embedding":
+                loss = nn.functional.cosine_embedding_loss(
+                    output.flatten(1),
+                    target.squeeze().flatten(1),
+                    torch.ones((output.shape[0])).to("cuda"),
+                )
+            case "mse":
+                loss = nn.functional.mse_loss(output, target.squeeze())
+            case _:
+                raise Exception(f"Unsupported lossfunction {self.loss_func}")
         return loss
 
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), lr=1e-6)
+        match self.optim:
+            case "AdamW":
+                optimizer = optim.AdamW(self.parameters(), lr=self.lr)
+            case "Adam":
+                optimizer = optim.Adam(self.parameters(), lr=self.lr)
+            case "SGD":
+                optimizer = optim.SGD(self.parameters(), lr=self.lr)
+            case _:
+                raise Exception(f"Unsupported Optimizer {self.optim}")
         return optimizer
