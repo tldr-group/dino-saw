@@ -7,8 +7,8 @@ import torch.nn as nn
 import math
 from dinosaw.models import PEModel
 from dinosaw.datasets import DatasetTrainStudent, DatasetValStudent, GenericDatasetStudent
-
-
+import numpy as np
+from dinosaw.models.example_overwrite import get_alibi_slope, distance_matrix
 
 class AbsPEFader(Callback):
     def __init__(
@@ -184,7 +184,42 @@ class PositionalDropoutScheduler(Callback):
                 return m
         return None
 
+    
+
+class BatchDropout(Callback):
+    def __init__(self, 
+                 p_start:int =0,
+                 p_end:int=1,
+                 schedule= "linear",
+                 max_steps:int = None,
+                 clamp: tuple[float, float] = (0.0, 1.0),
+                 log_name: str = "pos_drop_p",
+                 warmup_steps:int=0
+                ):
+        self.p_start = p_start
+        self.p_end = p_end
+        self.schedule = schedule
+        self.max_steps=max_steps
+        self.clamp = clamp
+        self.log_name = log_name
+        self.warmup_steps = warmup_steps
+
+        self.base_pos_embed = None
+        
+    def setup(self, trainer, pl_module, stage):
+        if self.max_steps is None:
+            self.max_steps = trainer.estimated_stepping_batches or trainer.max_steps
+        return super().setup(trainer, pl_module, stage)
+
+    def on_fit_start(self, trainer, pl_module):
+        self.base_pos_embed = pl_module.vit.model.pos_embed
+
     def _compute_p(self, step: int, max_steps: int) -> float:
+        if self.warmup_steps and step < self.warmup_steps:
+            return 0.0
+        else:
+            step=step-self.warmup_steps
+
         # Normalize step to [0, 1]
         denom = max(1, (max_steps or 1) - 1)
         t = min(1.0, step / denom)
@@ -210,52 +245,77 @@ class PositionalDropoutScheduler(Callback):
 
         lo, hi = self.clamp
         return float(max(lo, min(hi, p)))
+        
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        step = trainer.global_step
+        current_p = self._compute_p(step=step, max_steps=self.max_steps)
+        if np.random.random(1) < current_p:
+            pl_module.vit.model.pos_embed = torch.nn.Parameter(torch.zeros_like(pl_module.vit.model.pos_embed), requires_grad=False)
+        else:
+            pl_module.vit.model.pos_embed = pl_module.base_pos_embed
+
+        pl_module.log(self.log_name, current_p, on_step=True, prog_bar=True, logger=True)
+        return super().on_train_batch_start(trainer, pl_module, batch, batch_idx)
+    
+
+
+
+        
 
 def main():
-    train_loader = torch.utils.data.DataLoader(GenericDatasetStudent(base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224", split="train"), batch_size=8, num_workers=32, pin_memory=True, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(GenericDatasetStudent(base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224", split="train"), batch_size=128, num_workers=48, pin_memory=True, shuffle=True)
     val_loader = torch.utils.data.DataLoader(GenericDatasetStudent(base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224", split="val"), batch_size=32, num_workers=8, pin_memory=True, shuffle=True)
 
-    name = "Adam_batch_8_mse_after_train_Norm_lr_e-5"
+    #name = "Adam_batch_8_mse_after_train_Norm+scale_lr_e-5"
+    name = "continue_long_run_AdamW_batch_128_lr_1e-4->1e-6_mse_direct_batch_drop_m=1"
 
     checkpoint_callback = ModelCheckpoint(
         monitor='val_loss',
-        dirpath='trained_models_in_steps/',
+        dirpath='trained_models_in_steps_new/',
         filename=name + '-{epoch:02d}-{val_loss:.2f}',
         mode="min",
     )
     endcheckpoint_callback = ModelCheckpoint( 
-        dirpath='trained_models_in_steps/',
+        dirpath='trained_models_in_steps_new/',
         filename=name + '-{epoch:02d}-{val_loss:.2f}_last_epoch',
     )
     
+    from pytorch_lightning.loggers import TensorBoardLogger
+    logger = TensorBoardLogger("lightning_logs", name=name)
+
     trainer = Trainer(
         devices=1, 
-        max_epochs=40, 
+        max_epochs=500, 
         gradient_clip_val=1.0, 
         callbacks=[
             checkpoint_callback, 
-            #PositionalDropoutScheduler(target_attr="model.pos_drop", p_start=0, p_end=1, schedule="step", max_steps=10_000), 
+            #PositionalDropoutScheduler(target_attr="model.pos_drop", p_start=0, p_end=1, schedule="step", max_steps=10_000),
+            #BatchDropout(max_steps=2_000, schedule="linear", warmup_steps=0),
             endcheckpoint_callback
         ], 
-        log_every_n_steps=20, 
+        log_every_n_steps=2, 
         accelerator="gpu", 
-        val_check_interval=0.2
+        val_check_interval=0.1,
+        logger = logger
     ) #, strategy="ddp" #AbsPEFader(start=1, end=0.0, total_steps=7_000, freeze_pos_embed=True),
 
     # model = PEModel.load_from_checkpoint("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/nothing-epoch=39-val_loss=0.01.ckpt", remove_pos_embed=False, use_alibi=True, strict=False).to("cuda")
     # model_alibi = PEModel.load_from_checkpoint("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/added_alibi-epoch=38-val_loss=0.01.ckpt", remove_pos_embed=False, use_alibi=True, strict=False).to("cuda")
     # model_tuned = PEModel.load_from_checkpoint("/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/added_alibi_gradual_fade_abs_pos_embed-epoch=09-val_loss=0.01.ckpt", use_alibi=True, remove_pos_embed=False, strict=False).to("cuda")
 
+    #attn_mask = (1 * distance_matrix((224//14)**2, wrap=True, metric="euclidean").half()).unsqueeze(0).to("cuda")
         
     trainer.fit(
-        model=PEModel.load_from_checkpoint(
-            "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/ONLY_NORM_Adam_batch_8_mse_with_0.25_step_dropout_120k_steps_lr_e-5-epoch=15-val_loss=1.42_last_epoch.ckpt", 
-            remove_pos_embed=True,
-            use_alibi=True, 
-            strict=False,
-            loss_func="mse"
-        ),
-        #model = PEModel(loss_func="cosine_embedding"),
+        # model=PEModel.load_from_checkpoint(
+        #     "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps/test_callback_Adam_batch_8_mse_batch_drop_0.5_lr_e-5-epoch=39-val_loss=0.25_last_epoch.ckpt", 
+        #     remove_pos_embed=True,
+        #     use_alibi=True, 
+        #     strict=False,
+        #     loss_func="mse"
+        # ),
+        model = PEModel(loss_func="mse", use_alibi=True, remove_pos_embed=True, slope_type="constant", normalize=True, wrap=True),#, attn_mask=attn_mask),
+        ckpt_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/continue_as_long_run_AdamW_batch_128_lr_1e-4_mse_direct_batch_drop_m=1-epoch=388-val_loss=0.09.ckpt",   
         train_dataloaders=train_loader, 
         val_dataloaders=val_loader)
 
