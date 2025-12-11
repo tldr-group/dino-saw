@@ -15,7 +15,7 @@ from dinosaw.models.alibi import AlibiSlopeType
 from typing import Literal
 
 Optims = Literal["Adam", "AdamW", "SGD"]
-Losses = Literal["cosine_embedding", "mse"]
+Losses = Literal["cosine_embedding", "mse", "cosine_similarity"]
 DropSchedule = Literal["linear", "cosine", "step"]
 
 
@@ -298,7 +298,7 @@ def main(cfg: Config):
     )  # , strategy="ddp" #AbsPEFader(start=1, end=0.0, total_steps=7_000, freeze_pos_embed=True),
 
     if cfg.continue_training:
-        assert cfg.ckpt_path is not None 
+        assert cfg.ckpt_path is not None
 
     trainer.fit(
         model=PEModel(
@@ -323,9 +323,14 @@ def main(cfg: Config):
 
 if __name__ == "__main__":
     cfg = Config(
-        experiment_name="testing_configs",
+        experiment_name="cosine_sim_batch_128_lr=1e-4",
         batch_size=128,
-        add_alibi=False,
+        lr=1e-4,
+        add_alibi=True,
+        zero_pos_emb=True,
         which_device=[1],
+        loss_type="cosine_similarity",
+        # unfreeze_norms=True,
+        # unfreeze_pattern=["attn"],
     )
     main(cfg)

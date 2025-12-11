@@ -47,6 +47,10 @@ def unfreeze_alibi_and_norms(
 
 
 class PEModel(L.LightningModule):
+    # TODO:
+    # - caching distance matrix
+    # - Add option to use DINOv3
+
     def __init__(
         self,
         use_alibi: bool = False,
@@ -207,7 +211,10 @@ class PEModel(L.LightningModule):
     def calc_loss(self, output, target):
         """
         calculates loss function for the model
+        output (B,C,H,W)
+        target (B,1,C,H,W)
         """
+
         match self.loss_func:
             case "cosine_embedding":
                 loss = nn.functional.cosine_embedding_loss(
@@ -217,6 +224,11 @@ class PEModel(L.LightningModule):
                 )
             case "mse":
                 loss = nn.functional.mse_loss(output, target.squeeze())
+            case "cosine_similarity":
+                return (
+                    1.0
+                    - nn.functional.cosine_similarity(output, target.squeeze(), dim=1)
+                ).mean()
             case _:
                 raise Exception(f"Unsupported lossfunction {self.loss_func}")
         return loss
