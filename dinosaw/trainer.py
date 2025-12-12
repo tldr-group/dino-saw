@@ -218,6 +218,7 @@ class Config:
     loss_type: Losses = "mse"
     accelerator: str = "gpu"
     which_device: list[int] = field(default_factory=lambda: [0])
+    resize_size: int = None
 
     # altering the model
     add_block: bool = False
@@ -234,6 +235,7 @@ def main(cfg: Config):
         GenericDatasetStudent(
             base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224",
             split="train",
+            resize_size=cfg.resize_size,
         ),
         batch_size=cfg.batch_size,
         num_workers=48,
@@ -244,6 +246,7 @@ def main(cfg: Config):
         GenericDatasetStudent(
             base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224",
             split="val",
+            resize_size=cfg.resize_size,
         ),
         batch_size=32,
         num_workers=8,
@@ -323,13 +326,16 @@ def main(cfg: Config):
 
 if __name__ == "__main__":
     cfg = Config(
-        experiment_name="cosine_sim_batch_128_lr=1e-4",
-        batch_size=128,
+        experiment_name="518_resized_cosine_batch_32_lr=1e-4",
+        batch_size=32,
         lr=1e-4,
         add_alibi=True,
         zero_pos_emb=True,
         which_device=[1],
         loss_type="cosine_similarity",
+        resize_size=518,
+        # continue_training=True,
+        # ckpt_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/cosine_sim_batch_128_lr=1e-4-epoch=99-val_loss=0.05_last_epoch.ckpt",
         # unfreeze_norms=True,
         # unfreeze_pattern=["attn"],
     )
