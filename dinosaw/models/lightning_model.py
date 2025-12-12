@@ -65,6 +65,7 @@ class PEModel(L.LightningModule):
         add_block: bool = False,
         unfreeze_norms: bool = False,
         unfreeze_pattern: list[str] = None,
+        train_hw: int = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -80,6 +81,7 @@ class PEModel(L.LightningModule):
         self.add_block = add_block
         self.unfreeze_norms = unfreeze_norms
         self.pattern = unfreeze_pattern
+        self.train_hw = train_hw
 
         self.last_validation_batch = None
 
@@ -93,6 +95,8 @@ class PEModel(L.LightningModule):
                 normalize=self.normalize,
                 wrap=self.wrap,
             )
+            if self.train_hw is not None:
+                self.vit.set_distance_matrices(self.train_hw, self.train_hw)
         else:
             self.vit = PretrainedViTWrapper(
                 MODEL_LIST[1], add_flash_attn=False, device=self.device
