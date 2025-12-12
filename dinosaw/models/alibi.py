@@ -225,6 +225,7 @@ class AlibiBlock(Block):
         act_layer: Type[nn.Module] = nn.GELU,
         norm_layer: Type[nn.Module] = nn.LayerNorm,
         mlp_layer: Type[nn.Module] = Mlp,
+        **kwargs,
     ) -> None:
         super().__init__(
             dim=dim,
