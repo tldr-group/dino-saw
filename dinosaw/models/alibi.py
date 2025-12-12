@@ -49,7 +49,7 @@ def get_distance_matrix(
     n_extra_tokens = int(add_cls) + n_reg_tokens
     # timm prepends [CLS] + [REG]
     D = F.pad(D, (n_extra_tokens, 0, n_extra_tokens, 0), mode="constant")
-
+    torch.cuda.empty_cache()
     return D.to(device)
 
 
@@ -63,7 +63,9 @@ def get_alibi_slope(
     match slope_type:
         case "fixed":
             xs = (2**8) ** (1 / num_heads)
-            m = torch.tensor([1 / xs ** (i + 1) for i in range(num_heads)], device=device)
+            m = torch.tensor(
+                [1 / xs ** (i + 1) for i in range(num_heads)], device=device
+            )
         case "learned":
             m = torch.rand(num_heads, device=device)
         case "constant":
@@ -114,14 +116,20 @@ class AlibiAttention(Attention):
         self.n_tokens_w = 16
 
         distance_matrix = get_distance_matrix(
-            self.n_tokens_h, self.n_tokens_w, 4, wrap=True, device=self.qkv.weight.device
+            self.n_tokens_h,
+            self.n_tokens_w,
+            4,
+            wrap=True,
+            device=self.qkv.weight.device,
         )
         self.register_buffer("distance_matrix", distance_matrix)
 
         self.is_enabled = True
 
     def set_alibi_slope(self, slope_type: AlibiSlopeType):
-        m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
+        m = get_alibi_slope(
+            self.num_heads, slope_type=slope_type, device=self.qkv.weight.device
+        )
         if isinstance(m, torch.Tensor):
             self.register_buffer("m", m)
         else:
@@ -158,7 +166,11 @@ class AlibiAttention(Attention):
     def forward(self, x: torch.Tensor, attn_mask=None) -> torch.Tensor:
         B, N, C = x.shape
 
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        qkv = (
+            self.qkv(x)
+            .reshape(B, N, 3, self.num_heads, self.head_dim)
+            .permute(2, 0, 3, 1, 4)
+        )
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
 
@@ -172,7 +184,11 @@ class AlibiAttention(Attention):
 
         if self.fused_attn:
             x = F.scaled_dot_product_attention(
-                q, k, v, dropout_p=self.attn_drop.p if self.training else 0.0, attn_mask=bias
+                q,
+                k,
+                v,
+                dropout_p=self.attn_drop.p if self.training else 0.0,
+                attn_mask=bias,
             )
         else:
             q = q * self.scale
@@ -264,7 +280,14 @@ if __name__ == "__main__":
     h, w = 8, 30
 
     dm = get_distance_matrix(
-        h, w, n_reg_tokens=0, add_cls=False, metric="euclidean", wrap=True, normalize=False, device="cpu"
+        h,
+        w,
+        n_reg_tokens=0,
+        add_cls=False,
+        metric="euclidean",
+        wrap=True,
+        normalize=False,
+        device="cpu",
     )
     dm_np = dm.detach().cpu().numpy()
     print(dm_np.shape)
