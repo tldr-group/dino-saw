@@ -4,6 +4,7 @@ from PIL import Image
 from torchvision import transforms as T
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
+import numpy as np
 from dinosaw.utils import load_image, resize_crop, normalize
 
 from typing import Literal
@@ -28,23 +29,27 @@ def get_paths(base_path: str, mode: Mode):
     return img_paths, target_paths
 
 
-def load_voc_target(path: str, img_size):
-    img = Image.open(
-        "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/VOC/SegmentationClass/2007_000032.png"
-    )
+def load_voc_target(path: str, img_size: int, set_255_0: bool = False):
+    img = Image.open(path)
     transform = T.Compose(
         [
             T.Resize((img_size, img_size)),
             T.CenterCrop((img_size, img_size)),
-            T.ToTensor(),
         ]
     )
-    img_transformed = transform(img)
+    img_transformed = torch.tensor(np.array(transform(img)))
+
+    if set_255_0:
+        img_transformed[img_transformed == 255] = 0
+
     return img_transformed.to(torch.float16)
 
 
 class VOC_Dataset(Dataset):
-    def __init__(self, base_path: str, mode: Mode, img_size: int = 518):
+    def __init__(
+        self, base_path: str, mode: Mode, img_size: int = 518, set_255_0: bool = False
+    ):
+        self.set_255_0 = set_255_0
         self.img_size = img_size
         self.mode = mode
 
@@ -62,11 +67,10 @@ class VOC_Dataset(Dataset):
             ),
         )[0]
 
-        target = load_voc_target(self.target_paths[index], img_size=self.img_size)
+        target = load_voc_target(
+            self.target_paths[index], img_size=self.img_size, set_255_0=self.set_255_0
+        )
 
-        print(target.shape)
-        plt.imshow(target.squeeze().float().cpu())
-        plt.show()
         return img, target
 
 
@@ -74,9 +78,11 @@ def main():
     ds = VOC_Dataset(
         "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/VOC",
         mode="train",
+        set_255_0=True,
     )
 
-    ds[0]
+    for i in range(10):
+        ds[i]
 
 
 if __name__ == "__main__":
