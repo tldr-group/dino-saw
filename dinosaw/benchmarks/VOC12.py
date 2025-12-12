@@ -29,6 +29,16 @@ def get_paths(base_path: str, mode: Mode):
     return img_paths, target_paths
 
 
+def to_VOC_label(mask: torch.Tensor):
+    num_classes = 21
+    label = torch.zeros((num_classes, mask.shape[0], mask.shape[1]), dtype=torch.long)
+
+    for class_ in range(num_classes):  # 21 == num classes
+        label[class_, :, :] = mask == class_
+
+    return label
+
+
 def load_voc_target(path: str, img_size: int, set_255_0: bool = False):
     img = Image.open(path)
     transform = T.Compose(
@@ -42,7 +52,9 @@ def load_voc_target(path: str, img_size: int, set_255_0: bool = False):
     if set_255_0:
         img_transformed[img_transformed == 255] = 0
 
-    return img_transformed.to(torch.float16)
+    target = to_VOC_label(img_transformed)
+
+    return target
 
 
 class VOC_Dataset(Dataset):
@@ -59,13 +71,22 @@ class VOC_Dataset(Dataset):
 
         super().__init__()
 
+    def __len__(self):
+        if len(self.img_paths) != len(self.target_paths):
+            raise ValueError(
+                f"Number of images and targets do not match. Images: {len(self.img_paths)}, Targets: {len(self.target_paths)}"
+            )
+        else:
+            return len(self.img_paths)
+
     def __getitem__(self, index):
         img = load_image(
             self.img_paths[index],
             transform=resize_crop(
                 (self.img_size, self.img_size), (self.img_size, self.img_size)
             ),
-        )[0]
+            device_str="cpu",
+        )[0].squeeze()
 
         target = load_voc_target(
             self.target_paths[index], img_size=self.img_size, set_255_0=self.set_255_0
@@ -76,13 +97,10 @@ class VOC_Dataset(Dataset):
 
 def main():
     ds = VOC_Dataset(
-        "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/VOC",
+        "/home/pawlo/Arbeit/positional_bias/dino-saw/Datasets/VOC",
         mode="train",
         set_255_0=True,
     )
-
-    for i in range(10):
-        ds[i]
 
 
 if __name__ == "__main__":
