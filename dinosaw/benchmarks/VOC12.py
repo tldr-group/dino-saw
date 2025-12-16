@@ -3,6 +3,7 @@ import torch
 from PIL import Image
 import torch.nn.functional as F
 from torchvision import transforms as T
+from torchvision.transforms import v2
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,11 +34,21 @@ def get_paths(base_path: str, mode: Mode):
 
 def to_VOC_label(mask: torch.Tensor):
     num_classes = 21
-    label = torch.zeros((num_classes, mask.shape[0], mask.shape[1]), dtype=torch.long)
+    if len(mask.shape) == 2:
+        label = torch.zeros(
+            (num_classes, mask.shape[-2], mask.shape[-1]), dtype=torch.long
+        )
 
-    for class_ in range(num_classes):  # 21 == num classes
-        label[class_, :, :] = mask == class_
+        for class_ in range(num_classes):  # 21 == num classes
+            label[class_, :, :] = mask == class_
+    elif len(mask.shape) == 3:
+        label = torch.zeros(
+            (mask.shape[0], num_classes, mask.shape[-2], mask.shape[-1]),
+            dtype=torch.long,
+        )
 
+        for class_ in range(num_classes):  # 21 == num classes
+            label[:, class_, :, :] = mask == class_
     return label
 
 
@@ -45,8 +56,8 @@ def load_voc_target(path: str, img_size: int, set_255_0: bool = False):
     img = Image.open(path)
     transform = T.Compose(
         [
-            T.Resize((img_size, img_size)),
-            T.CenterCrop((img_size, img_size)),
+            v2.Resize((img_size, img_size)),
+            v2.CenterCrop((img_size, img_size)),
         ]
     )
     img_transformed = torch.tensor(np.array(transform(img)))
@@ -54,9 +65,11 @@ def load_voc_target(path: str, img_size: int, set_255_0: bool = False):
     if set_255_0:
         img_transformed[img_transformed == 255] = 0
 
-    target = to_VOC_label(img_transformed)
+    # target = to_VOC_label(img_transformed)
 
-    return target
+    target = img_transformed
+
+    return target.long()
 
 
 class VOC_Dataset(Dataset):
@@ -125,6 +138,7 @@ class VOC_Dataset(Dataset):
         if self.load_in_memory:
             img, target = self.imgs[index], self.targets[index]
         else:
+            # loading images
             img = load_image(
                 self.img_paths[index],
                 transform=resize_crop(
@@ -139,7 +153,22 @@ class VOC_Dataset(Dataset):
                 set_255_0=self.set_255_0,
             )
 
-        return img.to(self.dtype), target.to(self.dtype)
+            # transforming them
+            # transforms_ = v2.Compose(
+            #     [
+            #         # v2.Resize(size=(518, 518)),
+            #         # v2.RandomCrop(size=(518,518))
+            #         v2.RandomVerticalFlip(p=0.5),
+            #         v2.RandomHorizontalFlip(p=0.5),
+            #         # v2.RandomPhotometricDistort(p=0.5),
+            #     ]
+            # )
+
+            # img, target = (
+            #     transforms_(img, target) if self.mode == "train" else (img, target)
+            # )
+
+        return img.to(self.dtype), target  # .to(self.dtype)
 
 
 def main():
