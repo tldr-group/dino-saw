@@ -14,7 +14,7 @@ from timm.data import create_transform, resolve_data_config
 from timm.models.vision_transformer import VisionTransformer, Attention, Block
 
 
-from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType
+from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType, DistanceMatrixWrapper
 
 import re
 from typing import cast, Callable, Literal
@@ -204,9 +204,7 @@ class PretrainedViTWrapper(nn.Module):
     def forward(self, x: torch.Tensor):
         return self.model(x)
 
-    def forward_features(
-        self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, abs_pos_enc_drop_prob: float = 0.0
-    ) -> torch.Tensor:
+    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False) -> torch.Tensor:
         b, _, h, w = x.shape
         p = self.patch_size
         s = self.stride
@@ -240,6 +238,19 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         add_cls: bool = True,
         **kwargs,
     ):
+        distance_matrix = DistanceMatrixWrapper(
+            n_tokens_h=16,
+            n_tokens_w=16,
+            n_reg_tokens=n_reg_tokens,
+            metric=metric,
+            normalize=normalize,
+            wrap=wrap,
+            add_cls=add_cls,
+        )
+
+        def block_fn_wrapper(dim: int, num_heads: int, **block_kwargs: dict) -> AlibiBlock:
+            return AlibiBlock(distance_matrix=distance_matrix, dim=dim, num_heads=num_heads, **block_kwargs)
+
         super().__init__(
             model_identifier=model_identifier,
             stride=stride,
@@ -247,58 +258,67 @@ class AlibiVitWrapper(PretrainedViTWrapper):
             dynamic_img_size=dynamic_img_size,
             dynamic_img_pad=dynamic_img_pad,
             device=device,
-            block_fn=AlibiBlock,
+            block_fn=block_fn_wrapper,
             **kwargs,
         )
+        self.distance_matrix = distance_matrix
         self.model.pos_embed.requires_grad = False  # freeze pos embedding
         self.slope_type = slope_type
-        self.n_reg_tokens = n_reg_tokens
-        self.metric = metric
-        self.normalize = normalize
-        self.wrap = wrap
-        self.add_cls = add_cls
 
         for blk in self.model.blocks:
             blk: AlibiBlock
             blk.attn.set_alibi_slope(slope_type=self.slope_type)
 
-    def set_distance_matrices(
-        self,
-        n_tokens_h: int,
-        n_tokens_w: int,
-        n_reg_tokens: int = 4,
-        metric: str = "euclidean",
-        normalize: bool = True,
-        wrap: bool = True,
-        add_cls: bool = True,
-    ):
-        for blk in self.model.blocks:
-            blk: AlibiBlock
-            blk.set_distance_matrix(
-                n_tokens_h=n_tokens_h,
-                n_tokens_w=n_tokens_w,
-                n_reg_tokens=n_reg_tokens,
-                metric=metric,
-                normalize=normalize,
-                wrap=wrap,
-                add_cls=add_cls,
-            )
-        self.n_reg_tokens = n_reg_tokens
-        self.metric = metric
-        self.normalize = normalize
-        self.wrap = wrap
-        self.add_cls = add_cls
+    # def set_distance_matrices(
+    #     self,
+    #     n_tokens_h: int,
+    #     n_tokens_w: int,
+    #     n_reg_tokens: int = 4,
+    #     metric: str = "euclidean",
+    #     normalize: bool = True,
+    #     wrap: bool = True,
+    #     add_cls: bool = True,
+    # ):
+    #     for blk in self.model.blocks:
+    #         blk: AlibiBlock
+    #         blk.set_distance_matrix(
+    #             n_tokens_h=n_tokens_h,
+    #             n_tokens_w=n_tokens_w,
+    #             n_reg_tokens=n_reg_tokens,
+    #             metric=metric,
+    #             normalize=normalize,
+    #             wrap=wrap,
+    #             add_cls=add_cls,
+    #         )
+    #     self.n_reg_tokens = n_reg_tokens
+    #     self.metric = metric
+    #     self.normalize = normalize
+    #     self.wrap = wrap
+    #     self.add_cls = add_cls
 
     def set_alibi_enabled(self, enabled: bool):
-        for blk in self.model.blocks:
-            blk: AlibiBlock
-            blk.attn.is_enabled = enabled
+        return
+        # for blk in self.model.blocks:
+        #     blk: AlibiBlock
+        #     blk.attn.is_enabled = enabled
 
     def forward(self, x: torch.Tensor):
         # TODO: set alibi distance matrix size
         return self.model(x)
 
-    def forward_features(
+    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, **kwargs) -> torch.Tensor:
+        assert self.model.pos_embed is not None
+        b, _, h, w = x.shape
+        p = self.patch_size
+        s = self.stride
+        n_patch_h, n_patch_w = (h - p) // s + 1, (w - p) // s + 1
+
+        self.distance_matrix.update(n_patch_h, n_patch_w)
+
+        feats = super().forward_features(x, make_2D, add_reg)
+        return feats
+
+    def forward_features_with_pos_enc_dropout(
         self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, abs_pos_enc_drop_prob: float = 0.0
     ) -> torch.Tensor:
         assert self.model.pos_embed is not None
@@ -307,15 +327,7 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         s = self.stride
         n_patch_h, n_patch_w = (h - p) // s + 1, (w - p) // s + 1
 
-        self.set_distance_matrices(
-            n_tokens_h=n_patch_h,
-            n_tokens_w=n_patch_w,
-            n_reg_tokens=self.n_reg_tokens,
-            metric=self.metric,
-            normalize=self.normalize,
-            wrap=self.wrap,
-            add_cls=self.add_cls,
-        )
+        self.distance_matrix.update(n_patch_h, n_patch_w)
 
         do_abs_pos_enc_drop = torch.rand(1).item() <= abs_pos_enc_drop_prob
         cached_pos_embed_data = self.model.pos_embed.data.clone()
