@@ -134,10 +134,8 @@ class DenoisingViTWrapper(PretrainedViTWrapper):
         super().__init__(model_identifier, stride, add_flash_attn, dynamic_img_size, dynamic_img_pad, device, **kwargs)
         self.denoiser = get_denoiser(denoiser_path, device=device, to_eval=True)
 
-    def forward_features(
-        self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, abs_pos_enc_drop_prob: float = 0
-    ) -> torch.Tensor:
-        feats = super().forward_features(x, make_2D, add_reg, abs_pos_enc_drop_prob)
+    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False) -> torch.Tensor:
+        feats = super().forward_features(x, make_2D, add_reg)
         denoised = self.denoiser.forward_(feats, permute_channel=True, return_channel_first=True)
         return denoised
 
