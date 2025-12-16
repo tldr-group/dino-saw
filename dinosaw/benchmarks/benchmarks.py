@@ -6,7 +6,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from dinosaw.benchmarks.VOC12 import VOC_Dataset
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from typing import Literal
 
@@ -28,12 +28,12 @@ class Config:
         "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/VOC"
     )
     img_size: int = 518
-    set_255_0: bool = True
+    set_255_0: bool = False
     dtype: torch.dtype = torch.float32
     load_in_memory: bool = False
 
     # trainer
-    devices: list[int] | int = [0]
+    devices: list[int] | int = field(default_factory=lambda: [0])
     max_steps: int = 40_000
     log_every_n_steps: int = 10
     val_check_interval: float = 1.0
@@ -43,11 +43,15 @@ class Config:
     # ckpt_path is also used in dataset if load_in_memor = True
     checkpoint_path: str = "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_good_models/try_reproduce_AdamW_batch_128_lr_1e-4_mse_direct_batch_drop_m=1-epoch=99-val_loss=0.12.ckpt"
     benchmark: Benchmark = "VOC12"
-    metrics: list[Metrics] = ["mIoU"]
+    metrics: list[Metrics] = field(default_factory=lambda: ["mIoU"])
     loss_func: Losses = "CE"
     lr: float = 1e-4
+    optim: Optimizer = "AdamW"
+    upsampling_method: UpsamplingMethod = "bilinear"
+    upsampling_size: tuple[int, int] = (img_size, img_size)
+
     # only needed if alibimodel was trained with higher resolution
-    train_hw: int | None
+    train_hw: int | None = None
 
 
 def main(cfg: Config):
@@ -90,18 +94,22 @@ def main(cfg: Config):
         max_steps=cfg.max_steps,
         log_every_n_steps=cfg.log_every_n_steps,
         val_check_interval=cfg.val_check_interval,
-        precision=cfg.val_check_interval,
+        precision=cfg.precision,
         logger=logger,
     )
 
     trainer.fit(
         model=BenchmarkModel(
-            checkpoint_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/518_resized_cosine_batch_32_lr=1e-4-epoch=07-val_loss=0.09.ckpt",
-            benchmark="VOC12",
-            metrics=["mIoU"],
-            lr=1e-4,
-            loaded_feats=False,
-            train_hw=37,
+            checkpoint_path=cfg.checkpoint_path,
+            benchmark=cfg.benchmark,
+            metrics=cfg.metrics,
+            lr=cfg.lr,
+            loaded_feats=cfg.load_in_memory,
+            train_hw=cfg.train_hw,
+            optim=cfg.optim,
+            loss_func=cfg.loss_func,
+            upsampling_method=cfg.upsampling_method,
+            upsampling_size=cfg.upsampling_size,
         ),
         train_dataloaders=train_loader,
         val_dataloaders=val_loader,
@@ -109,6 +117,9 @@ def main(cfg: Config):
 
 
 if __name__ == "__main__":
-    cfg = Config(name="test_config")
+    cfg = Config(
+        name="test_cosine_with_new_loss",
+        checkpoint_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_good_models/cosine_sim_batch_128_lr=1e-4-epoch=98-val_loss=0.05.ckpt",  # "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/nothing-epoch=03-val_loss=1.70_last_epoch_copy.ckpt",
+    )
 
     main(cfg)
