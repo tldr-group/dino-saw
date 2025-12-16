@@ -13,7 +13,7 @@ from dinosaw.datasets.vis_dataset import visualise
 from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
 from dinosaw.models.alibi import AlibiSlopeType
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
-from dinosaw.utils import seed_everything
+from dinosaw.utils import seed_everything, closest_resize
 
 from dataclasses import dataclass
 from typing import Literal
@@ -26,6 +26,9 @@ ModelType = Literal["base", "plus_alibi"]
 @dataclass
 class Config:
     experiment_name: str = "default_experiment"
+
+    ds_path: str = "data/IN_reduced_base_224"
+    img_l: int = 224
 
     model_type: ModelType = "base"
     alibi_slope_type: AlibiSlopeType = "constant"
@@ -44,6 +47,8 @@ class Config:
 
     save_per: int = 2
 
+    existing_checkpoint: str | None = None
+
 
 # TODO: make the wrapeprs take in various params; cache slope type etc on AlibiVitWrapper
 def get_model(
@@ -55,6 +60,7 @@ def get_model(
     freeze_abs_pos_emb: bool,
     zero_pos_emb: bool,
     device: torch.device,
+    existing_checkpoint: str | None = None,
 ) -> nn.Module:
     match model_type:
         case "base":
@@ -83,6 +89,10 @@ def get_model(
         model.set_alibi_enabled(True)
     elif model_type == "plus_alibi" and n_epochs_warmup > 0:
         model.set_alibi_enabled(False)
+
+    if existing_checkpoint is not None:
+        print(f"Loading existing checkpoint from {existing_checkpoint}")
+        model.load_state_dict(torch.load(existing_checkpoint, map_location=device, weights_only=True))
 
     return model
 
@@ -141,9 +151,11 @@ def feed_batch_get_loss(
             optimizer.step()
     x = x.to("cpu")
     y_true = y_true.to("cpu")
+    y_pred = y_pred.to("cpu")
     return loss.item()
 
 
+IMG_L = 518
 EXPR_PATH = f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}"
 SEED = 1025
 N_VIS = 32
@@ -151,16 +163,19 @@ seed_everything(SEED)
 
 # cfg = Config()
 cfg = Config(
-    experiment_name="alibi_zero_cosine_loss",
+    experiment_name="alibi_zero_cosine_loss_base_embeds_multiscale",
+    ds_path=f"data/IN_reduced_base_{IMG_L}",
+    img_l=IMG_L,
     model_type="plus_alibi",
     zero_pos_emb=True,
     freeze_pos_emb=True,
     n_epochs=100,
-    batch_size=128,
+    batch_size=32,
     loss_type="cosine",
     n_epochs_warmup=-1,
     init_pos_enc_dropout=1.0,
     lr=1e-4,
+    existing_checkpoint="experiments/20251210_1444/best_model.pth",
 )
 
 try:
@@ -174,9 +189,10 @@ writer.add_hparams(cfg.__dict__, {})
 writer.add_text("desc", cfg.experiment_name)
 
 DEVICE = "cuda:1"
-CACHE = True
-train_ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "train", store_in_memory=CACHE)
-val_ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "val", store_in_memory=CACHE)
+CACHE = False
+tr = closest_resize(cfg.img_l, cfg.img_l, 14)
+train_ds = HomogenizedEmbeddingDataset(cfg.ds_path, "train", transform=tr, store_in_memory=CACHE)
+val_ds = HomogenizedEmbeddingDataset(cfg.ds_path, "val", transform=tr, store_in_memory=CACHE)
 
 print(f"Train dataset size: {len(train_ds)}")
 print(f"Validation dataset size: {len(val_ds)}")
@@ -196,6 +212,7 @@ model = get_model(
     cfg.freeze_pos_emb,
     cfg.zero_pos_emb,
     DEVICE,
+    cfg.existing_checkpoint,
 )
 
 optimizer = get_optim(cfg.optim, model, cfg.lr)
@@ -228,11 +245,15 @@ for epoch in range(cfg.n_epochs):
 
     train_loss = 0.0
     batch: torch.Tensor
-    for batch in train_dl:
+    N_batches = len(train_dl)
+    for i, batch in enumerate(train_dl):
         loss = feed_batch_get_loss(
             model, optimizer, loss_fn, batch, pos_enc_dropout=dropout_prob, training=True, device=DEVICE
         )
         train_loss += loss
+        if i % 50 == 0:
+            print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
+
     train_loss /= len(train_dl)
     val_loss = 0.0
     batch: torch.Tensor
@@ -258,8 +279,13 @@ for epoch in range(cfg.n_epochs):
         x, y_true = batch
         x = x[:N_VIS].to(DEVICE)
         y_true = y_true[:N_VIS].to(DEVICE)
-        y_pred = model.forward_features(x, make_2D=True)
+        with torch.no_grad():
+            y_pred = model.forward_features(x, make_2D=True)
 
         vis_img = visualise(x, y_true, y_pred, "tmp/val_vis.png")
         vis_img_arr = np.array(vis_img).transpose(2, 0, 1)
         writer.add_image("vis/val_batch", vis_img_arr, epoch)
+
+        x = x.to("cpu")
+        y_true = y_true.to("cpu")
+        y_pred = y_pred.to("cpu")
