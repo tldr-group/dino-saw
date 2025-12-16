@@ -1,10 +1,12 @@
 import os
 import torch
 from PIL import Image
+import torch.nn.functional as F
 from torchvision import transforms as T
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
 import numpy as np
+from dinosaw.models import PEModel
 from dinosaw.utils import load_image, resize_crop, normalize
 
 from typing import Literal
@@ -26,7 +28,7 @@ def get_paths(base_path: str, mode: Mode):
         img_paths.append(base_path + "/JPEGImages/" + line.strip() + ".jpg")
         target_paths.append(base_path + "/SegmentationClass/" + line.strip() + ".png")
 
-    return img_paths, target_paths
+    return img_paths, target_paths  # [0:2]
 
 
 def to_VOC_label(mask: torch.Tensor):
@@ -59,17 +61,57 @@ def load_voc_target(path: str, img_size: int, set_255_0: bool = False):
 
 class VOC_Dataset(Dataset):
     def __init__(
-        self, base_path: str, mode: Mode, img_size: int = 518, set_255_0: bool = False
+        self,
+        base_path: str,
+        mode: Mode,
+        img_size: int = 518,
+        set_255_0: bool = False,
+        dtype: torch.dtype = torch.float32,
+        load_in_memory: bool = False,
+        checkpoint_path: str | None = None,
     ):
         self.set_255_0 = set_255_0
         self.img_size = img_size
         self.mode = mode
+        self.dtype = dtype
+        self.load_in_memory = load_in_memory
 
         self.img_paths, self.target_paths = get_paths(
             base_path=base_path, mode=self.mode
         )
-
+        if self.load_in_memory:
+            self.model = PEModel.load_from_checkpoint(
+                checkpoint_path=checkpoint_path
+            ).half()
+            self.imgs, self.targets = self.load_feats_and_targets()
         super().__init__()
+
+    def load_feats_and_targets(self):
+        imgs, targets = [], []
+        for img_path, target_path in zip(self.img_paths, self.target_paths):
+            with torch.inference_mode():
+                imgs.append(
+                    self.model(
+                        load_image(
+                            img_path,
+                            transform=resize_crop(
+                                (self.img_size, self.img_size),
+                                (self.img_size, self.img_size),
+                            ),
+                            device_str="cuda:1",
+                        )[0]
+                    )
+                    .cpu()
+                    .squeeze()
+                )
+            targets.append(
+                load_voc_target(
+                    target_path,
+                    img_size=self.img_size,
+                    set_255_0=self.set_255_0,
+                )
+            )
+        return imgs, targets
 
     def __len__(self):
         if len(self.img_paths) != len(self.target_paths):
@@ -80,19 +122,24 @@ class VOC_Dataset(Dataset):
             return len(self.img_paths)
 
     def __getitem__(self, index):
-        img = load_image(
-            self.img_paths[index],
-            transform=resize_crop(
-                (self.img_size, self.img_size), (self.img_size, self.img_size)
-            ),
-            device_str="cpu",
-        )[0].squeeze()
+        if self.load_in_memory:
+            img, target = self.imgs[index], self.targets[index]
+        else:
+            img = load_image(
+                self.img_paths[index],
+                transform=resize_crop(
+                    (self.img_size, self.img_size), (self.img_size, self.img_size)
+                ),
+                device_str="cpu",
+            )[0].squeeze()
 
-        target = load_voc_target(
-            self.target_paths[index], img_size=self.img_size, set_255_0=self.set_255_0
-        )
+            target = load_voc_target(
+                self.target_paths[index],
+                img_size=self.img_size,
+                set_255_0=self.set_255_0,
+            )
 
-        return img, target
+        return img.to(self.dtype), target.to(self.dtype)
 
 
 def main():
