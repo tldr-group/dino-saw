@@ -4,12 +4,15 @@ from lightning import LightningModule
 from torchvision.transforms.functional import resize
 from torchvision.utils import make_grid
 from torchmetrics.functional.segmentation import mean_iou
+from torchmetrics.functional import jaccard_index
+from torchmetrics import JaccardIndex
 from dinosaw.models import PEModel
 from dinosaw.utils import do_2D_pca, normalize
 from dinosaw.benchmarks.bench_utils import colorize
 
 from typing import Literal
 
+from VOC12 import to_VOC_label
 
 Benchmark = Literal["VOC12"]
 Losses = Literal["CE"]
@@ -52,6 +55,7 @@ class BenchmarkModel(LightningModule):
         self.dino = PEModel.load_from_checkpoint(
             checkpoint_path=checkpoint_path, map_location="cuda:0", train_hw=train_hw
         )
+        self.benchmark = benchmark
         self.head = get_head(benchmark)
         self.metrics = metrics
         self.optim = optim
@@ -122,17 +126,32 @@ class BenchmarkModel(LightningModule):
     def calc_loss(self, pred, target):
         match self.loss_func:
             case "CE":
-                loss = F.cross_entropy(pred, target.float())
+                # print(target.shape)
+                loss = F.cross_entropy(pred, target.long(), ignore_index=255)
             case _:
                 raise Exception(f"Unkown lossfunction '{self.loss_func}'")
         return loss
 
     def calc_metrics(self, pred, target, mode: str):
+        #print(target.unique())
+
         if self.metrics is not None:
             for metric in self.metrics:
                 match metric:
                     case "mIoU":
-                        miou = mean_iou(pred.argmax(dim=1), target.argmax(dim=1))
+                        # miou = (
+                        #     pred.argmax(dim=1),
+                        #     target.argmax(dim=1),
+                        #     input_format="index",
+                        # )
+                        miou = jaccard_index(
+                            pred.argmax(dim=1),
+                            target,
+                            task="multiclass",
+                            average="macro",
+                            ignore_index=255,
+                            num_classes=21,
+                        )
                         self.log(f"{mode}_mIoU", miou.mean())
                     case _:
                         raise Exception(f"Unknow metric '{metric}'")
@@ -159,7 +178,7 @@ class BenchmarkModel(LightningModule):
                     mode=self.upsampling_method,
                 ).squeeze()  # (1,C,H,W) -> (C,H,W)
             pred = colorize(output.cpu().argmax(dim=0))
-            target = colorize(target.cpu().argmax(dim=0))
+            target = colorize(target.cpu())
             output = (
                 torch.tensor(
                     do_2D_pca(
