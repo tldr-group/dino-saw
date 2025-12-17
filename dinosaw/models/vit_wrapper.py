@@ -21,13 +21,11 @@ from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType
 FLASH_ATTN_INSTALLED = False
 try:
     from flash_attn import flash_attn_qkvpacked_func
+
     print("flash attention installed")
     FLASH_ATTN_INSTALLED = True
 except ImportError:
     pass
-
-
-
 
 
 FeatureType = Literal["FEATUP", "LOFTUP_FULL", "LOFTUP_COMPRESSED"]
@@ -61,7 +59,7 @@ class Patch:
         def forward(
             self: Attention,
             x: torch.Tensor,
-            attn_mask=None, #attn_bias=None,
+            attn_mask=None,  # attn_bias=None,
         ) -> torch.Tensor:
             # TODO: attn_bias -> attn_mask in new timm, find way to align these
             B, N, C = x.shape
@@ -99,20 +97,27 @@ class PretrainedViTWrapper(nn.Module):
     ):
         super().__init__()
         # comment out the following line to test the models not in the list
-        assert model_identifier in MODEL_LIST, f"Model type {model_identifier} not tested yet."
+        assert model_identifier in MODEL_LIST, (
+            f"Model type {model_identifier} not tested yet."
+        )
         self.model_identifier = model_identifier
 
         self.stride = stride
         patch_size_from_id = re.search(r"patch(\d+)", model_identifier)
-        self.patch_size = 14 if patch_size_from_id is None else int(patch_size_from_id.group(1))
+        self.patch_size = (
+            14 if patch_size_from_id is None else int(patch_size_from_id.group(1))
+        )
 
         n_reg_tokens_from_id = re.search(r"reg(\d+)", model_identifier)
-        self.n_reg_tokens = 4 if n_reg_tokens_from_id is None else int(n_reg_tokens_from_id.group(1))
+        self.n_reg_tokens = (
+            4 if n_reg_tokens_from_id is None else int(n_reg_tokens_from_id.group(1))
+        )
 
         self.dynamic_img_size = dynamic_img_size
         self.dynamic_img_pad = dynamic_img_pad
-        self.model, self.transformation = self.create_model(model_identifier, device, **kwargs)
-
+        self.model, self.transformation = self.create_model(
+            model_identifier, device, **kwargs
+        )
 
         # overwrite the stride size
         if stride != self.model.patch_embed.proj.stride[0]:
@@ -126,7 +131,9 @@ class PretrainedViTWrapper(nn.Module):
                     img_size[1] - self.patch_size[1]
                 ) // self.proj.stride[1] + 1
 
-            self.model.patch_embed.dynamic_feat_size = MethodType(dynamic_feat_size, self.model.patch_embed)
+            self.model.patch_embed.dynamic_feat_size = MethodType(
+                dynamic_feat_size, self.model.patch_embed
+            )
 
         if add_flash_attn:
             self.model = self.model.half()
@@ -154,11 +161,11 @@ class PretrainedViTWrapper(nn.Module):
         if is_fit3D:
             model_identifier = model_identifier[6:]
 
-        #model = 
+        # model =
 
         model = create_model(
             model_identifier,
-            pretrained=True,#True,
+            pretrained=True,  # True,
             num_classes=0,
             dynamic_img_size=self.dynamic_img_size,
             dynamic_img_pad=self.dynamic_img_pad,
@@ -169,11 +176,15 @@ class PretrainedViTWrapper(nn.Module):
         # e.g., their training resolution, normalization, etc, are different
         # data_config = resolve_model_data_config(model=model)
         data_config = resolve_data_config(model=model)
-        img_transforms = cast(transforms.Compose, create_transform(**data_config, is_training=False))
+        img_transforms = cast(
+            transforms.Compose, create_transform(**data_config, is_training=False)
+        )
 
         if is_fit3D:
             # load finetuned weights
-            state_dict = torch.hub.load_state_dict_from_url(FIT3D_DINOv2_REG_SMALL_URL, map_location=device)
+            state_dict = torch.hub.load_state_dict_from_url(
+                FIT3D_DINOv2_REG_SMALL_URL, map_location=device
+            )
             model.load_state_dict(state_dict)
 
         return model, img_transforms
@@ -204,7 +215,13 @@ class PretrainedViTWrapper(nn.Module):
     def forward(self, x: torch.Tensor, attn_mask=None):
         return self.model(x, attn_mask)
 
-    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, attn_mask=None) -> torch.Tensor:
+    def forward_features(
+        self,
+        x: torch.Tensor,
+        make_2D: bool = False,
+        add_reg: bool = False,
+        attn_mask=None,
+    ) -> torch.Tensor:
         b, _, h, w = x.shape
         p = self.patch_size
         s = self.stride
@@ -213,13 +230,15 @@ class PretrainedViTWrapper(nn.Module):
         if add_reg:
             feats = self.model.forward_features(x, attn_mask=attn_mask)
         else:  # ignore CLS + reg tokens
-            feats = self.model.forward_features(x, attn_mask=attn_mask)[:, self.n_reg_tokens + 1 :]
+            feats = self.model.forward_features(x, attn_mask=attn_mask)[
+                :, self.n_reg_tokens + 1 :
+            ]
         feats = feats.permute((0, 2, 1))
 
         if make_2D and not add_reg:
             feats = feats.reshape((b, -1, n_patch_h, n_patch_w))
         return feats
-    
+
 
 class AlibiVitWrapper(PretrainedViTWrapper):
     def __init__(
@@ -255,6 +274,8 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         self.normalize = normalize
         self.wrap = wrap
         self.add_cls = add_cls
+
+        self.distance_matrix = None
 
         for blk in self.model.blocks:
             blk: AlibiBlock
@@ -297,7 +318,11 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         return self.model(x)
 
     def forward_features(
-        self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, abs_pos_enc_drop_prob: float = 0.0
+        self,
+        x: torch.Tensor,
+        make_2D: bool = False,
+        add_reg: bool = False,
+        abs_pos_enc_drop_prob: float = 0.0,
     ) -> torch.Tensor:
         assert self.model.pos_embed is not None
         b, _, h, w = x.shape
@@ -325,9 +350,8 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         return feats
 
 
-
 if __name__ == "__main__":
-    dv2 = AlibiVitWrapper("fit3D_vit_small_patch14_reg4_dinov2.lvd142m", add_flash_attn=False)
+    dv2 = AlibiVitWrapper("vit_small_patch14_reg4_dinov2.lvd142m", add_flash_attn=False)
     x = torch.zeros((1, 3, 14 * 4, 14 * 4))
     o = dv2.forward_features(x, True, False, abs_pos_enc_drop_prob=0.5)
     print(o.shape)
