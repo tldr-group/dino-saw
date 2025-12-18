@@ -105,24 +105,8 @@ class AlibiAttention(Attention):
             norm_layer=norm_layer,
         )
         self.fused_attn = False
-        # m = get_alibi_slope(self.num_heads, slope_type=slope_type)
-        # if isinstance(m, torch.Tensor):
-        #     self.register_buffer("m", m)
-        # else:
-        #     self.register_parameter("m", m)
+
         self.set_alibi_slope(slope_type=slope_type)
-
-        self.n_tokens_h = 16
-        self.n_tokens_w = 16
-
-        distance_matrix = get_distance_matrix(
-            self.n_tokens_h,
-            self.n_tokens_w,
-            4,
-            wrap=True,
-            device=self.qkv.weight.device,
-        )
-        self.register_buffer("distance_matrix", distance_matrix)
 
         self.is_enabled = True
 
@@ -135,34 +119,6 @@ class AlibiAttention(Attention):
         else:
             self.register_parameter("m", m)
 
-    def set_distance_matrix(
-        self,
-        n_tokens_h: int,
-        n_tokens_w: int,
-        n_reg_tokens: int = 4,
-        metric: str = "euclidean",
-        normalize: bool = True,
-        wrap: bool = True,
-        add_cls: bool = True,
-    ):
-        if n_tokens_h == self.n_tokens_h and n_tokens_w == self.n_tokens_w:
-            return  # no change
-
-        distance_matrix = get_distance_matrix(
-            n_tokens_h,
-            n_tokens_w,
-            n_reg_tokens=n_reg_tokens,
-            add_cls=add_cls,
-            metric=metric,
-            normalize=normalize,
-            wrap=wrap,
-            device=self.m.device,
-        )
-        self.distance_matrix = distance_matrix
-        # self.distance_matrix = self.distance_matrix.to(self.m.dtype)
-        self.n_tokens_h = n_tokens_h
-        self.n_tokens_w = n_tokens_w
-
     def forward(self, x: torch.Tensor, attn_mask=None) -> torch.Tensor:
         B, N, C = x.shape
 
@@ -174,13 +130,7 @@ class AlibiAttention(Attention):
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
 
-        # conditionally apply alibi bias
-        bias = (
-            (self.m * self.distance_matrix)
-            if self.is_enabled
-            else torch.zeros_like(self.distance_matrix, requires_grad=False)
-        )
-        bias = bias.unsqueeze(0)
+        bias = attn_mask.unsqueeze(0) if attn_mask is not None else None
 
         if self.fused_attn:
             x = F.scaled_dot_product_attention(
@@ -251,26 +201,6 @@ class AlibiBlock(Block):
             attn_drop=attn_drop,
             proj_drop=proj_drop,
             norm_layer=norm_layer,
-        )
-
-    def set_distance_matrix(
-        self,
-        n_tokens_h: int,
-        n_tokens_w: int,
-        n_reg_tokens: int = 4,
-        metric: str = "euclidean",
-        normalize: bool = True,
-        wrap: bool = True,
-        add_cls: bool = True,
-    ):
-        self.attn.set_distance_matrix(
-            n_tokens_h,
-            n_tokens_w,
-            n_reg_tokens=n_reg_tokens,
-            metric=metric,
-            normalize=normalize,
-            wrap=wrap,
-            add_cls=add_cls,
         )
 
 
