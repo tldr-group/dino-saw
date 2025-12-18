@@ -16,7 +16,7 @@ from typing import Callable, Literal
 from timm.data import create_transform, resolve_data_config
 from timm.models.vision_transformer import VisionTransformer, Attention, Block
 
-from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType
+from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType, get_distance_matrix
 
 FLASH_ATTN_INSTALLED = False
 try:
@@ -267,6 +267,7 @@ class AlibiVitWrapper(PretrainedViTWrapper):
             block_fn=AlibiBlock,
             **kwargs,
         )
+        self.device = device
         self.model.pos_embed.requires_grad = False  # freeze pos embedding
         self.slope_type = slope_type
         self.n_reg_tokens = n_reg_tokens
@@ -275,7 +276,20 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         self.wrap = wrap
         self.add_cls = add_cls
 
-        self.distance_matrix = None
+        self.n_tokens_h = 1
+        self.n_tokens_w = 1
+        distance_matrix = get_distance_matrix(
+            self.n_tokens_h,
+            self.n_tokens_w,
+            self.n_reg_tokens,
+            metric=self.metric,
+            normalize=self.normalize,
+            wrap=self.wrap,
+            add_cls=self.add_cls,
+        )
+        self.register_buffer(
+            "distance_matrix", distance_matrix
+        )  # set model wide distance matrix
 
         for blk in self.model.blocks:
             blk: AlibiBlock
@@ -291,17 +305,19 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         wrap: bool = True,
         add_cls: bool = True,
     ):
-        for blk in self.model.blocks:
-            blk: AlibiBlock
-            blk.set_distance_matrix(
-                n_tokens_h=n_tokens_h,
-                n_tokens_w=n_tokens_w,
-                n_reg_tokens=n_reg_tokens,
-                metric=metric,
-                normalize=normalize,
-                wrap=wrap,
-                add_cls=add_cls,
-            )
+        if n_tokens_h == self.n_tokens_h and n_tokens_w == self.n_tokens_w:
+            return  # no change
+
+        self.distance_matrix = get_distance_matrix(
+            n_tokens_h,
+            n_tokens_w,
+            n_reg_tokens=n_reg_tokens,
+            add_cls=add_cls,
+            metric=metric,
+            normalize=normalize,
+            wrap=wrap,
+            device=self.device,
+        )
         self.n_reg_tokens = n_reg_tokens
         self.metric = metric
         self.normalize = normalize
@@ -345,7 +361,9 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         if do_abs_pos_enc_drop and self.training:
             self.model.pos_embed.data.zero_()
 
-        feats = super().forward_features(x, make_2D, add_reg)
+        feats = super().forward_features(
+            x, make_2D, add_reg, attn_mask=self.distance_matrix
+        )
         self.model.pos_embed.data.copy_(cached_pos_embed_data)
         return feats
 
