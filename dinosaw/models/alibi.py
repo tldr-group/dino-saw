@@ -130,9 +130,8 @@ class AlibiAttention(Attention):
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
 
-        bias = attn_mask.unsqueeze(0) if attn_mask is not None else None
-
         if self.fused_attn:
+            bias = attn_mask.unsqueeze(0) if attn_mask is not None else None
             x = F.scaled_dot_product_attention(
                 q,
                 k,
@@ -143,6 +142,9 @@ class AlibiAttention(Attention):
         else:
             q = q * self.scale
             attn = q @ k.transpose(-2, -1)
+            bias = (
+                attn_mask.unsqueeze(0).to(attn.device) if attn_mask is not None else 0
+            )
 
             attn = attn + bias
 
