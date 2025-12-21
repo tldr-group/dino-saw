@@ -22,6 +22,7 @@ class HomogenizedEmbeddingDataset(Dataset):
         norm_feats: bool = False,
         squeeze_batch_dim_from_image: bool = True,
         squeeze_batch_dim_from_embed: bool = True,
+        channels_to_blank: list[int] = [],
     ):
         self.img_paths = sorted(glob(f"{base_path}/{split}/imgs/*.png"))
         self.target_paths = sorted(glob(f"{base_path}/{split}/embeddings/*.pt"))
@@ -31,6 +32,7 @@ class HomogenizedEmbeddingDataset(Dataset):
         self.norm_feats = norm_feats
         self.squeeze_batch_dim_from_embed = squeeze_batch_dim_from_embed
         self.squeeze_batch_dim_from_image = squeeze_batch_dim_from_image
+        self.channels_to_blank = channels_to_blank
 
         self.store_in_memory = store_in_memory
 
@@ -57,10 +59,13 @@ class HomogenizedEmbeddingDataset(Dataset):
         self, path: str, squeeze_batch_dim_from_embed: bool = True, norm_feats: bool = False
     ) -> torch.Tensor:
         embed = torch.load(path, weights_only=True)
+        embed.requires_grad = False
         if norm_feats:
             embed = torch.nn.functional.normalize(embed, p=2, dim=1)
         if squeeze_batch_dim_from_embed:
             embed = embed.squeeze(0)
+        if len(self.channels_to_blank) > 0:
+            embed[self.channels_to_blank, ...] = 0.0
         return embed
 
     def load_image(self, path: str, transform: Compose, squeeze_batch_dim_from_image: bool = True) -> torch.Tensor:

@@ -15,7 +15,7 @@ from dinosaw.models.alibi import AlibiSlopeType
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
 from dinosaw.utils import seed_everything, closest_resize
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 Optims = Literal["Adam", "AdamW", "SGD"]
@@ -31,11 +31,17 @@ class Config:
     img_l: int = 224
 
     model_type: ModelType = "base"
+    dino_chk_path: str | None = None
+    vit_model_type: str = MODEL_LIST[1]
+    stride: int = 14
+
     alibi_slope_type: AlibiSlopeType = "constant"
     norm_alibi: bool = True
     wrap_alibi: bool = True
     freeze_pos_emb: bool = True
     zero_pos_emb: bool = False
+
+    channels_to_blank: list[int] = field(default_factory=lambda: [])
 
     n_epochs_warmup: int = 1
     n_epochs: int = 100
@@ -61,29 +67,43 @@ def get_model(
     zero_pos_emb: bool,
     device: torch.device,
     existing_checkpoint: str | None = None,
+    vit_model_type: str = MODEL_LIST[1],
+    stride: int = 14,
+    chk_path: str | None = None,
 ) -> nn.Module:
     match model_type:
         case "base":
-            model = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=device)
+            model = PretrainedViTWrapper(
+                vit_model_type, stride=stride, add_flash_attn=False, device=device, chk_path=chk_path
+            )
         case "plus_alibi":
             model = AlibiVitWrapper(
-                MODEL_LIST[1],
+                vit_model_type,
+                stride=stride,
                 add_flash_attn=False,
                 device=device,
                 slope_type=alibi_slope_type,
                 normalize=norm_alibi,
                 wrap=wrap_alibi,
+                chk_path=chk_path,
             )
         case _:
             raise Exception(f"Unsupported model type {model_type}")
 
     if freeze_abs_pos_emb or zero_pos_emb:
-        assert model.model.pos_embed is not None
-        model.model.pos_embed.requires_grad = False  # freeze pos embedding
+        # assert model.model.pos_embed is not None
+        if "dv3" in vit_model_type or "dinov3" in vit_model_type:
+            pass
+        else:
+            model.model.pos_embed.requires_grad = False  # freeze pos embedding
 
     if zero_pos_emb:
-        assert model.model.pos_embed is not None
-        model.model.pos_embed.data.zero_()
+        # assert model.model.pos_embed is not None
+        if "dv3" in vit_model_type or "dinov3" in vit_model_type:
+            print("dinov3, zeroing rope_embed")
+            model.model.rope_embed = None
+        else:
+            model.model.pos_embed.data.zero_()
 
     if model_type == "plus_alibi" and n_epochs_warmup <= 0:
         model.set_alibi_enabled(True)
@@ -155,7 +175,7 @@ def feed_batch_get_loss(
     return loss.item()
 
 
-IMG_L = 518
+IMG_L = 224
 EXPR_PATH = f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}"
 SEED = 1025
 N_VIS = 32
@@ -163,20 +183,25 @@ seed_everything(SEED)
 
 # cfg = Config()
 cfg = Config(
-    experiment_name="alibi_zero_cosine_loss_base_embeds_multiscale",
-    ds_path=f"data/IN_reduced_base_{IMG_L}",
+    experiment_name="alibi_zero_cosine_loss_dv3_embeds_shared_mat",
+    ds_path=f"data/IN_reduced_dv3_{IMG_L}",
     img_l=IMG_L,
     model_type="plus_alibi",
+    vit_model_type=MODEL_LIST[-1],
+    stride=16,
+    dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
     zero_pos_emb=True,
     freeze_pos_emb=True,
     n_epochs=100,
-    batch_size=32,
+    batch_size=128,
+    # channels_to_blank=[47, 113, 117, 359],
     loss_type="cosine",
     n_epochs_warmup=-1,
     init_pos_enc_dropout=1.0,
     lr=1e-4,
-    existing_checkpoint="experiments/20251210_1444/best_model.pth",
+    # existing_checkpoint="experiments/20251210_1444/best_model.pth",
 )
+print(cfg)
 
 try:
     rmtree(EXPR_PATH)
@@ -185,14 +210,18 @@ except FileNotFoundError:
 makedirs(EXPR_PATH, exist_ok=True)
 
 writer = SummaryWriter(EXPR_PATH)
-writer.add_hparams(cfg.__dict__, {})
+# writer.add_hparams(cfg.__dict__, {})
 writer.add_text("desc", cfg.experiment_name)
 
 DEVICE = "cuda:1"
 CACHE = False
 tr = closest_resize(cfg.img_l, cfg.img_l, 14)
-train_ds = HomogenizedEmbeddingDataset(cfg.ds_path, "train", transform=tr, store_in_memory=CACHE)
-val_ds = HomogenizedEmbeddingDataset(cfg.ds_path, "val", transform=tr, store_in_memory=CACHE)
+train_ds = HomogenizedEmbeddingDataset(
+    cfg.ds_path, "train", transform=tr, store_in_memory=CACHE, channels_to_blank=cfg.channels_to_blank
+)
+val_ds = HomogenizedEmbeddingDataset(
+    cfg.ds_path, "val", transform=tr, store_in_memory=CACHE, channels_to_blank=cfg.channels_to_blank
+)
 
 print(f"Train dataset size: {len(train_ds)}")
 print(f"Validation dataset size: {len(val_ds)}")
@@ -213,6 +242,9 @@ model = get_model(
     cfg.zero_pos_emb,
     DEVICE,
     cfg.existing_checkpoint,
+    cfg.vit_model_type,
+    cfg.stride,
+    cfg.dino_chk_path,
 )
 
 optimizer = get_optim(cfg.optim, model, cfg.lr)
@@ -251,8 +283,8 @@ for epoch in range(cfg.n_epochs):
             model, optimizer, loss_fn, batch, pos_enc_dropout=dropout_prob, training=True, device=DEVICE
         )
         train_loss += loss
-        if i % 50 == 0:
-            print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
+        # if i % 50 == 0:
+        #     print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
 
     train_loss /= len(train_dl)
     val_loss = 0.0
