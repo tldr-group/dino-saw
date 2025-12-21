@@ -14,10 +14,11 @@ from time import time
 
 FOLDER_NAME = "data"
 DEVICE = "cuda:1"
-NAME = "IN_reduced_base"
-IMG_L = 518
+NAME = "IN_reduced_dv3"
+IMG_L = 224
 N_VAL = 2600
 HOMOGENISE = False
+STRIDE = 16
 
 np.random.seed(10001)
 torch.random.manual_seed(10001)
@@ -32,10 +33,16 @@ for split in ("train", "val"):
     for which in ("imgs", "embeddings"):
         makedirs(f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/{which}/", exist_ok=True)
 
-dv2 = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
+dv2 = PretrainedViTWrapper(
+    MODEL_LIST[-1],
+    stride=STRIDE,
+    add_flash_attn=False,
+    device=DEVICE,
+    chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
+)
 dv2 = dv2.eval()
 
-tr = closest_resize(IMG_L, IMG_L, 14)
+tr = closest_resize(IMG_L, IMG_L, STRIDE)
 
 
 with torch.no_grad():
@@ -49,7 +56,9 @@ with torch.no_grad():
         img_to_save = to_img(unnormalize(img_tensor.squeeze(0)))
 
         if HOMOGENISE:
-            translated_feats = translate_featurise(img_tensor, dv2, step=14, mult=1, max_batch_size=128, device=DEVICE)
+            translated_feats = translate_featurise(
+                img_tensor, dv2, step=STRIDE, mult=1, max_batch_size=128, device=DEVICE
+            )
             translated_feats = translated_feats.to("cpu")
         else:
             with torch.no_grad():

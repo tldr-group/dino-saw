@@ -41,6 +41,9 @@ MODEL_LIST = [
     "vit_small_patch14_reg4_dinov2.lvd142m",
     # FIT3D finetuned
     "fit3D_vit_small_patch14_reg4_dinov2.lvd142m",
+    # DINOv3
+    # "vit_small_plus_patch16_dinov3.lvd1689m",
+    "dinov3_vits_patch16_plus_reg4",
 ]
 MODEL_MAP: dict[FeatureType, str] = {
     "FEATUP": MODEL_LIST[2],
@@ -154,7 +157,12 @@ class PretrainedViTWrapper(nn.Module):
         if is_fit3D:
             model_identifier = model_identifier[6:]
 
-        # model =
+        is_dv3 = "dinov3" in model_identifier
+        if is_dv3:
+            path = kwargs["chk_path"]
+            assert path is not None
+            model = torch.hub.load("dinov3", "dinov3_vits16plus", source="local", weights=path)
+            return model, None
 
         model = create_model(
             model_identifier,
@@ -210,6 +218,13 @@ class PretrainedViTWrapper(nn.Module):
         s = self.stride
         n_patch_h, n_patch_w = (h - p) // s + 1, (w - p) // s + 1
 
+        if "dinov3" in self.model_identifier:
+            feats = self.model.forward_features(x)["x_norm_patchtokens"]
+            feats = feats.permute((0, 2, 1))
+            if make_2D:
+                feats = feats.reshape((b, -1, n_patch_h, n_patch_w))
+            return feats
+
         if add_reg:
             feats = self.model.forward_features(x)
         else:  # ignore CLS + reg tokens
@@ -262,7 +277,7 @@ class AlibiVitWrapper(PretrainedViTWrapper):
             **kwargs,
         )
         self.distance_matrix = distance_matrix
-        self.model.pos_embed.requires_grad = False  # freeze pos embedding
+        # self.model.pos_embed.requires_grad = False  # freeze pos embedding
         self.slope_type = slope_type
 
         for blk in self.model.blocks:
