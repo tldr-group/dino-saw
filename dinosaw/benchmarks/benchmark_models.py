@@ -33,6 +33,35 @@ def get_head(benchmark: Benchmark):
     return head
 
 
+class LinearClassifier(torch.nn.Module):
+    def __init__(self, in_dim=384, num_classes=21, out_dim=518):
+        super().__init__()
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.num_classes = num_classes
+        self.linear = torch.nn.Linear(in_dim, num_classes)
+        self.linear.weight.data.normal_(mean=0.0, std=0.01)
+        self.linear.bias.data.zero_()
+
+    def forward(self, x: torch.Tensor):
+        # print(f"{x.shape=}")
+        lin_in = x.flatten(start_dim=2).transpose(1, 2)
+        # print(f"{lin_in.shape=}")
+        out = self.linear(lin_in)
+        # print(f"{out.shape=}")
+        reshaped_out = out.transpose(1, 2).reshape(
+            (x.shape[0], 21, self.out_dim, self.out_dim)
+        )
+        # print(f"{reshaped_out.shape=}")
+        return reshaped_out
+
+
+def get_linear_head():
+    # TODO: add benchmark case switch
+    head = LinearClassifier()
+    return head
+
+
 class BenchmarkModel(LightningModule):
     def __init__(
         self,
@@ -52,11 +81,13 @@ class BenchmarkModel(LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.loss_func = loss_func
-        self.dino = PEModel.load_from_checkpoint(
-            checkpoint_path=checkpoint_path, map_location="cuda:0", train_hw=train_hw
-        )
+        # self.dino = PEModel.load_from_checkpoint(
+        #     checkpoint_path=checkpoint_path, map_location="cuda:0", train_hw=train_hw
+        # )
+        self.dino = PEModel()
+        self.dino.configure_model()
         self.benchmark = benchmark
-        self.head = get_head(benchmark)
+        self.head = get_linear_head()  # get_head(benchmark)
         self.metrics = metrics
         self.optim = optim
         self.lr = lr
@@ -133,7 +164,7 @@ class BenchmarkModel(LightningModule):
         return loss
 
     def calc_metrics(self, pred, target, mode: str):
-        #print(target.unique())
+        # print(target.unique())
 
         if self.metrics is not None:
             for metric in self.metrics:
