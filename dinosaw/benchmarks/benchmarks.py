@@ -5,12 +5,13 @@ from dinosaw.benchmarks.benchmark_models import BenchmarkModel
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from dinosaw.benchmarks.VOC12 import VOC_Dataset
+from dinosaw.benchmarks.ADE20K import ADE20KDataset
 
 from dataclasses import dataclass, field
 
 from typing import Literal
 
-Benchmark = Literal["VOC12"]
+Benchmark = Literal["VOC12", "ADE20K"]
 Losses = Literal["CE"]
 Metrics = Literal["mIoU"]
 Optimizer = Literal["Adam", "AdamW", "SGD"]
@@ -56,14 +57,14 @@ class Config:
 
 def main(cfg: Config):
     train_loader = torch.utils.data.DataLoader(
-        VOC_Dataset(
+        ADE20KDataset(
             base_path=cfg.base_path,
             mode="train",
             img_size=cfg.img_size,
-            set_255_0=cfg.set_255_0,
+            # set_255_0=cfg.set_255_0,
             dtype=cfg.dtype,
-            load_in_memory=cfg.load_in_memory,
-            checkpoint_path=cfg.checkpoint_path,
+            # load_in_memory=cfg.load_in_memory,
+            # checkpoint_path=cfg.checkpoint_path,
         ),
         batch_size=cfg.batch_size,
         num_workers=32,
@@ -72,14 +73,14 @@ def main(cfg: Config):
     )
 
     val_loader = torch.utils.data.DataLoader(
-        VOC_Dataset(
+        ADE20KDataset(
             base_path=cfg.base_path,
             mode="val",
             img_size=cfg.img_size,
-            set_255_0=cfg.set_255_0,
+            # set_255_0=cfg.set_255_0,
             dtype=cfg.dtype,
-            load_in_memory=cfg.load_in_memory,
-            checkpoint_path=cfg.checkpoint_path,
+            # load_in_memory=cfg.load_in_memory,
+            # checkpoint_path=cfg.checkpoint_path,
         ),
         batch_size=cfg.batch_size,
         num_workers=32,
@@ -88,6 +89,8 @@ def main(cfg: Config):
     )
 
     logger = TensorBoardLogger("lightning_logs", name=cfg.name)
+
+    from lightning.pytorch.strategies import DDPStrategy
 
     trainer = Trainer(
         devices=cfg.devices,
@@ -118,8 +121,10 @@ def main(cfg: Config):
 
 if __name__ == "__main__":
     cfg = Config(
-        name="test_cosine_with_new_loss",
-        checkpoint_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_good_models/cosine_sim_batch_128_lr=1e-4-epoch=98-val_loss=0.05.ckpt",  # "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/nothing-epoch=03-val_loss=1.70_last_epoch_copy.ckpt",
+        name="test_ade20k_on_multiscale_model_518",
+        benchmark="ADE20K",
+        base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
+        checkpoint_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/normal_518_Dv2_feats_alibi_plus2epochs-epoch=94-val_loss=0.05_last_epoch.ckpt",  # "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/nothing-epoch=03-val_loss=1.70_last_epoch_copy.ckpt",
     )
 
     main(cfg)
