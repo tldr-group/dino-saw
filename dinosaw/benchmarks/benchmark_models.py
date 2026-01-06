@@ -14,7 +14,7 @@ from typing import Literal
 
 from VOC12 import to_VOC_label
 
-Benchmark = Literal["VOC12"]
+Benchmark = Literal["VOC12", "ADE20K"]
 Losses = Literal["CE"]
 Metrics = Literal["mIoU"]
 Optimizer = Literal["Adam", "AdamW", "SGD"]
@@ -27,6 +27,12 @@ def get_head(benchmark: Benchmark):
             head = torch.nn.Sequential(
                 torch.nn.SyncBatchNorm(num_features=384),
                 torch.nn.Conv2d(in_channels=384, out_channels=21, kernel_size=1),
+            )
+
+        case "ADE20K":
+            head = torch.nn.Sequential(
+                torch.nn.SyncBatchNorm(num_features=384),
+                torch.nn.Conv2d(in_channels=384, out_channels=151, kernel_size=1),
             )
         case _:
             raise Exception(f"No benchmark '{benchmark}' found")
@@ -87,7 +93,7 @@ class BenchmarkModel(LightningModule):
         self.dino = PEModel()
         self.dino.configure_model()
         self.benchmark = benchmark
-        self.head = get_linear_head()  # get_head(benchmark)
+        self.head = get_head(benchmark)  # get_linear_head()
         self.metrics = metrics
         self.optim = optim
         self.lr = lr
@@ -99,6 +105,7 @@ class BenchmarkModel(LightningModule):
         # freeze backbone
         for p in self.dino.parameters():
             p.requires_grad = False
+        self.dino.eval()
 
     def training_step(self, batch, batch_idx):
         img, target = batch
@@ -128,7 +135,7 @@ class BenchmarkModel(LightningModule):
 
         return loss
 
-    def forward(self, x):
+    def old_forward(self, x):
         if not self.loaded_feats:
             lr_feats = self.dino(x)
             hr_feats = F.interpolate(
@@ -141,6 +148,20 @@ class BenchmarkModel(LightningModule):
             )
             pred = self.head(hr_feats)
         return pred
+
+    def forward(self, x):
+        if not self.loaded_feats:
+            lr_feats = self.dino(x)
+            lr_pred = self.head(lr_feats)
+            hr_pred = F.interpolate(
+                input=lr_pred, size=self.upsampling_size, mode=self.upsampling_method
+            )
+        else:
+            lr_pred = self.head(x)
+            hr_pred = F.interpolate(
+                input=lr_pred, size=self.upsampling_size, mode=self.upsampling_method
+            )
+        return hr_pred
 
     def configure_optimizers(self):
         match self.optim:
@@ -157,19 +178,21 @@ class BenchmarkModel(LightningModule):
     def calc_loss(self, pred, target):
         match self.loss_func:
             case "CE":
-                # print(target.shape)
-                loss = F.cross_entropy(pred, target.long(), ignore_index=255)
+                loss = F.cross_entropy(
+                    pred,
+                    target.long(),
+                    ignore_index=255 if self.benchmark == "VOC12" else 0,
+                )
             case _:
                 raise Exception(f"Unkown lossfunction '{self.loss_func}'")
         return loss
 
     def calc_metrics(self, pred, target, mode: str):
-        # print(target.unique())
-
         if self.metrics is not None:
             for metric in self.metrics:
                 match metric:
                     case "mIoU":
+                        num_classes = 21 if self.benchmark == "VOC12" else 151
                         # miou = (
                         #     pred.argmax(dim=1),
                         #     target.argmax(dim=1),
@@ -180,8 +203,8 @@ class BenchmarkModel(LightningModule):
                             target,
                             task="multiclass",
                             average="macro",
-                            ignore_index=255,
-                            num_classes=21,
+                            ignore_index=255 if self.benchmark == "VOC12" else 0,
+                            num_classes=num_classes,
                         )
                         self.log(f"{mode}_mIoU", miou.mean())
                     case _:
