@@ -6,6 +6,7 @@ from torchvision.utils import make_grid
 from torchmetrics.functional.segmentation import mean_iou
 from torchmetrics.functional import jaccard_index
 from torchmetrics import JaccardIndex
+
 from dinosaw.models import PEModel
 from dinosaw.utils import do_2D_pca, normalize
 from dinosaw.benchmarks.bench_utils import colorize
@@ -26,12 +27,14 @@ def get_head(benchmark: Benchmark):
         case "VOC12":
             head = torch.nn.Sequential(
                 torch.nn.SyncBatchNorm(num_features=384),
+                torch.nn.Dropout2d(p=0.1),
                 torch.nn.Conv2d(in_channels=384, out_channels=21, kernel_size=1),
             )
 
         case "ADE20K":
             head = torch.nn.Sequential(
                 torch.nn.SyncBatchNorm(num_features=384),
+                torch.nn.Dropout2d(p=0.1),
                 torch.nn.Conv2d(in_channels=384, out_channels=151, kernel_size=1),
             )
         case _:
@@ -87,11 +90,16 @@ class BenchmarkModel(LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.loss_func = loss_func
-        # self.dino = PEModel.load_from_checkpoint(
-        #     checkpoint_path=checkpoint_path, map_location="cuda:0", train_hw=train_hw
-        # )
-        self.dino = PEModel()
+        self.dino = PEModel.load_from_checkpoint(
+            checkpoint_path=checkpoint_path, train_hw=train_hw
+        )
+        # self.dino = PEModel()
         self.dino.configure_model()
+        # from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
+
+        # self.dino = PretrainedViTWrapper(
+        #     MODEL_LIST[1], add_flash_attn=False, device=self.device
+        # ).half()
         self.benchmark = benchmark
         self.head = get_head(benchmark)  # get_linear_head()
         self.metrics = metrics
@@ -109,20 +117,22 @@ class BenchmarkModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         img, target = batch
+        target = target
 
         pred = self.forward(img)
         loss = self.calc_loss(pred, target)
-        self.log("train_loss", loss)
+        self.log("train_loss", loss, sync_dist=True)
         self.calc_metrics(pred, target, mode="train")
 
         return loss
 
     def validation_step(self, batch, batch_index):
         img, target = batch
+        target = target
 
         pred = self.forward(img)
         loss = self.calc_loss(pred, target)
-        self.log("val_loss", loss)
+        self.log("val_loss", loss, sync_dist=True)
         self.calc_metrics(pred, target, mode="val")
 
         if batch_index == 0:
@@ -150,17 +160,28 @@ class BenchmarkModel(LightningModule):
         return pred
 
     def forward(self, x):
-        if not self.loaded_feats:
-            lr_feats = self.dino(x)
-            lr_pred = self.head(lr_feats)
-            hr_pred = F.interpolate(
-                input=lr_pred, size=self.upsampling_size, mode=self.upsampling_method
-            )
+        x = x.half()
+        if self.loaded_feats:
+            lr_feats = x
         else:
-            lr_pred = self.head(x)
-            hr_pred = F.interpolate(
-                input=lr_pred, size=self.upsampling_size, mode=self.upsampling_method
+            lr_feats = self.dino(x)  # .forward_features(x, make_2D=True)
+
+        # lr_feats[:, [47, 113, 117, 359], :, :] = 0
+        lr_pred = self.head(lr_feats.float()).half()
+        # hr_pred = F.interpolate(
+        #     input=lr_pred, size=self.upsampling_size, mode=self.upsampling_method
+        # )
+        res = []
+        for feat in lr_pred:
+            res.append(
+                F.interpolate(
+                    input=feat.unsqueeze(0),
+                    size=self.upsampling_size,
+                    mode=self.upsampling_method,
+                ).half()
             )
+        hr_pred = torch.concat(res, dim=0)
+        # print(f"forward_done|{hr_pred.dtype=}")
         return hr_pred
 
     def configure_optimizers(self):
@@ -206,7 +227,7 @@ class BenchmarkModel(LightningModule):
                             ignore_index=255 if self.benchmark == "VOC12" else 0,
                             num_classes=num_classes,
                         )
-                        self.log(f"{mode}_mIoU", miou.mean())
+                        self.log(f"{mode}_mIoU", miou.mean(), sync_dist=True)
                     case _:
                         raise Exception(f"Unknow metric '{metric}'")
 
