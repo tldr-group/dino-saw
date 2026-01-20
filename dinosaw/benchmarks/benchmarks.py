@@ -6,12 +6,13 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from dinosaw.benchmarks.VOC12 import VOC_Dataset
 from dinosaw.benchmarks.ADE20K import ADE20KDataset
+import dinosaw.benchmarks.landsat as landsat
 
 from dataclasses import dataclass, field
 
 from typing import Literal
 
-Benchmark = Literal["VOC12", "ADE20K"]
+Benchmark = Literal["VOC12", "ADE20K", "landsat"]
 Losses = Literal["CE"]
 Metrics = Literal["mIoU"]
 Optimizer = Literal["Adam", "AdamW", "SGD"]
@@ -88,9 +89,12 @@ def main(cfg: Config):
         shuffle=False,
     )
 
-    logger = TensorBoardLogger("lightning_logs", name=cfg.name)
+    if cfg.benchmark == "landsat":
+        train_loader, val_loader = landsat.get_data_loaders(
+            cfg.img_size, cfg.batch_size
+        )
 
-    from lightning.pytorch.strategies import DDPStrategy
+    logger = TensorBoardLogger("lightning_logs", name=cfg.name)
 
     trainer = Trainer(
         devices=cfg.devices,
@@ -126,8 +130,8 @@ def main(cfg: Config):
 if __name__ == "__main__":
     torch.set_float32_matmul_precision("medium")
     cfg = Config(
-        name="opt_batchsize_alibi_ADE20K_using_0.1Dropout_in_head_lr53-3_batch64_distributed",
-        benchmark="ADE20K",
+        name="test_Dv2_landsat_lr53-3_batch64_distributed",
+        benchmark="landsat",
         base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
         checkpoint_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/normal_518_Dv2_feats_alibi_plus2epochs-epoch=94-val_loss=0.05_last_epoch.ckpt",  # "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/nothing-epoch=03-val_loss=1.70_last_epoch_copy.ckpt",
         train_hw=37,
