@@ -99,32 +99,42 @@ def main(cfg: Config):
         val_check_interval=cfg.val_check_interval,
         precision=cfg.precision,
         logger=logger,
+        strategy="ddp",
+        accumulate_grad_batches=4,
+    )
+
+    model = BenchmarkModel(
+        checkpoint_path=cfg.checkpoint_path,
+        benchmark=cfg.benchmark,
+        metrics=cfg.metrics,
+        lr=cfg.lr,
+        loaded_feats=cfg.load_in_memory,
+        train_hw=cfg.train_hw,
+        optim=cfg.optim,
+        loss_func=cfg.loss_func,
+        upsampling_method=cfg.upsampling_method,
+        upsampling_size=cfg.upsampling_size,
     )
 
     trainer.fit(
-        model=BenchmarkModel(
-            checkpoint_path=cfg.checkpoint_path,
-            benchmark=cfg.benchmark,
-            metrics=cfg.metrics,
-            lr=cfg.lr,
-            loaded_feats=cfg.load_in_memory,
-            train_hw=cfg.train_hw,
-            optim=cfg.optim,
-            loss_func=cfg.loss_func,
-            upsampling_method=cfg.upsampling_method,
-            upsampling_size=cfg.upsampling_size,
-        ),
+        model=model,
         train_dataloaders=train_loader,
         val_dataloaders=val_loader,
     )
 
 
 if __name__ == "__main__":
+    torch.set_float32_matmul_precision("medium")
     cfg = Config(
-        name="test_ade20k_on_multiscale_model_518",
+        name="opt_batchsize_alibi_ADE20K_using_0.1Dropout_in_head_lr53-3_batch64_distributed",
         benchmark="ADE20K",
         base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
         checkpoint_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/normal_518_Dv2_feats_alibi_plus2epochs-epoch=94-val_loss=0.05_last_epoch.ckpt",  # "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/nothing-epoch=03-val_loss=1.70_last_epoch_copy.ckpt",
+        train_hw=37,
+        batch_size=64,
+        lr=5e-3,
+        precision="16-mixed",
+        devices=2,
     )
 
     main(cfg)
