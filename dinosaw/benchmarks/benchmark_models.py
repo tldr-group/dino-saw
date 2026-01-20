@@ -15,7 +15,7 @@ from typing import Literal
 
 from VOC12 import to_VOC_label
 
-Benchmark = Literal["VOC12", "ADE20K"]
+Benchmark = Literal["VOC12", "ADE20K", "landsat"]
 Losses = Literal["CE"]
 Metrics = Literal["mIoU"]
 Optimizer = Literal["Adam", "AdamW", "SGD"]
@@ -36,6 +36,12 @@ def get_head(benchmark: Benchmark):
                 torch.nn.SyncBatchNorm(num_features=384),
                 torch.nn.Dropout2d(p=0.1),
                 torch.nn.Conv2d(in_channels=384, out_channels=151, kernel_size=1),
+            )
+        case "landsat":
+            head = torch.nn.Sequential(
+                torch.nn.SyncBatchNorm(num_features=384),
+                torch.nn.Dropout2d(p=0.1),
+                torch.nn.Conv2d(in_channels=384, out_channels=134, kernel_size=1),
             )
         case _:
             raise Exception(f"No benchmark '{benchmark}' found")
@@ -90,16 +96,16 @@ class BenchmarkModel(LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.loss_func = loss_func
-        self.dino = PEModel.load_from_checkpoint(
-            checkpoint_path=checkpoint_path, train_hw=train_hw
-        )
+        # self.dino = PEModel.load_from_checkpoint(
+        #     checkpoint_path=checkpoint_path, train_hw=train_hw
+        # )
         # self.dino = PEModel()
-        self.dino.configure_model()
-        # from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
+        # self.dino.configure_model()
+        from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
 
-        # self.dino = PretrainedViTWrapper(
-        #     MODEL_LIST[1], add_flash_attn=False, device=self.device
-        # ).half()
+        self.dino = PretrainedViTWrapper(
+            MODEL_LIST[1], add_flash_attn=False, device=self.device
+        ).half()
         self.benchmark = benchmark
         self.head = get_head(benchmark)  # get_linear_head()
         self.metrics = metrics
@@ -116,7 +122,12 @@ class BenchmarkModel(LightningModule):
         self.dino.eval()
 
     def training_step(self, batch, batch_idx):
-        img, target = batch
+        if self.benchmark == "landsat":
+            img = batch["image"]
+            target = batch["mask"]
+        else:
+            img, target = batch
+
         target = target
 
         pred = self.forward(img)
@@ -127,7 +138,11 @@ class BenchmarkModel(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_index):
-        img, target = batch
+        if self.benchmark == "landsat":
+            img = batch["image"]
+            target = batch["mask"]
+        else:
+            img, target = batch
         target = target
 
         pred = self.forward(img)
@@ -164,13 +179,10 @@ class BenchmarkModel(LightningModule):
         if self.loaded_feats:
             lr_feats = x
         else:
-            lr_feats = self.dino(x)  # .forward_features(x, make_2D=True)
+            lr_feats = self.dino.forward_features(x, make_2D=True)
 
         # lr_feats[:, [47, 113, 117, 359], :, :] = 0
         lr_pred = self.head(lr_feats.float()).half()
-        # hr_pred = F.interpolate(
-        #     input=lr_pred, size=self.upsampling_size, mode=self.upsampling_method
-        # )
         res = []
         for feat in lr_pred:
             res.append(
@@ -181,7 +193,6 @@ class BenchmarkModel(LightningModule):
                 ).half()
             )
         hr_pred = torch.concat(res, dim=0)
-        # print(f"forward_done|{hr_pred.dtype=}")
         return hr_pred
 
     def configure_optimizers(self):
@@ -213,7 +224,13 @@ class BenchmarkModel(LightningModule):
             for metric in self.metrics:
                 match metric:
                     case "mIoU":
-                        num_classes = 21 if self.benchmark == "VOC12" else 151
+                        match self.benchmark:
+                            case "VOC12":
+                                num_classes = 21
+                            case "ADE20K":
+                                num_classes = 151
+                            case "landsat":
+                                num_classes = 134
                         # miou = (
                         #     pred.argmax(dim=1),
                         #     target.argmax(dim=1),
