@@ -4,6 +4,7 @@ import numpy as np
 
 from torch.utils.data import DataLoader
 
+import os
 from os import makedirs
 from shutil import rmtree
 from datetime import datetime
@@ -17,6 +18,8 @@ from dinosaw.utils import seed_everything, closest_resize
 
 from dataclasses import dataclass, field
 from typing import Literal
+
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
@@ -74,7 +77,11 @@ def get_model(
     match model_type:
         case "base":
             model = PretrainedViTWrapper(
-                vit_model_type, stride=stride, add_flash_attn=False, device=device, chk_path=chk_path
+                vit_model_type,
+                stride=stride,
+                add_flash_attn=False,
+                device=device,
+                checkpoint_path=chk_path,
             )
         case "plus_alibi":
             model = AlibiVitWrapper(
@@ -85,7 +92,7 @@ def get_model(
                 slope_type=alibi_slope_type,
                 normalize=norm_alibi,
                 wrap=wrap_alibi,
-                chk_path=chk_path,
+                checkpoint_path=chk_path,
             )
         case _:
             raise Exception(f"Unsupported model type {model_type}")
@@ -112,7 +119,9 @@ def get_model(
 
     if existing_checkpoint is not None:
         print(f"Loading existing checkpoint from {existing_checkpoint}")
-        model.load_state_dict(torch.load(existing_checkpoint, map_location=device, weights_only=True))
+        model.load_state_dict(
+            torch.load(existing_checkpoint, map_location=device, weights_only=True)
+        )
 
     return model
 
@@ -164,7 +173,9 @@ def feed_batch_get_loss(
     else:
         model.eval()
     with torch.set_grad_enabled(training):
-        y_pred = model.forward_features(x, make_2D=True, abs_pos_enc_drop_prob=pos_enc_dropout)
+        y_pred = model.forward_features(
+            x, make_2D=True, abs_pos_enc_drop_prob=pos_enc_dropout
+        )
         loss = loss_fn(y_pred, y_true)
         if training:
             loss.backward()
@@ -183,17 +194,17 @@ seed_everything(SEED)
 
 # cfg = Config()
 cfg = Config(
-    experiment_name="alibi_zero_cosine_loss_dv3_embeds_shared_mat",
-    ds_path=f"data/IN_reduced_dv3_{IMG_L}",
+    experiment_name="test",
+    ds_path=f"../Datasets/IN_reduced_224/IN_reduced_224",
     img_l=IMG_L,
     model_type="plus_alibi",
-    vit_model_type=MODEL_LIST[-1],
-    stride=16,
-    dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
+    vit_model_type=MODEL_LIST[1],
+    stride=14,
+    # dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
     zero_pos_emb=True,
     freeze_pos_emb=True,
     n_epochs=100,
-    batch_size=128,
+    batch_size=16,
     # channels_to_blank=[47, 113, 117, 359],
     loss_type="cosine",
     n_epochs_warmup=-1,
@@ -213,14 +224,22 @@ writer = SummaryWriter(EXPR_PATH)
 # writer.add_hparams(cfg.__dict__, {})
 writer.add_text("desc", cfg.experiment_name)
 
-DEVICE = "cuda:1"
+DEVICE = "cuda:0"
 CACHE = False
 tr = closest_resize(cfg.img_l, cfg.img_l, 14)
 train_ds = HomogenizedEmbeddingDataset(
-    cfg.ds_path, "train", transform=tr, store_in_memory=CACHE, channels_to_blank=cfg.channels_to_blank
+    cfg.ds_path,
+    "train",
+    transform=tr,
+    store_in_memory=CACHE,
+    channels_to_blank=cfg.channels_to_blank,
 )
 val_ds = HomogenizedEmbeddingDataset(
-    cfg.ds_path, "val", transform=tr, store_in_memory=CACHE, channels_to_blank=cfg.channels_to_blank
+    cfg.ds_path,
+    "val",
+    transform=tr,
+    store_in_memory=CACHE,
+    channels_to_blank=cfg.channels_to_blank,
 )
 
 print(f"Train dataset size: {len(train_ds)}")
@@ -280,7 +299,13 @@ for epoch in range(cfg.n_epochs):
     N_batches = len(train_dl)
     for i, batch in enumerate(train_dl):
         loss = feed_batch_get_loss(
-            model, optimizer, loss_fn, batch, pos_enc_dropout=dropout_prob, training=True, device=DEVICE
+            model,
+            optimizer,
+            loss_fn,
+            batch,
+            pos_enc_dropout=dropout_prob,
+            training=True,
+            device=DEVICE,
         )
         train_loss += loss
         # if i % 50 == 0:
@@ -292,7 +317,13 @@ for epoch in range(cfg.n_epochs):
     # for batch in [next(iter(val_dl))][:1]:
     for batch in val_dl:
         loss = feed_batch_get_loss(
-            model, optimizer, loss_fn, batch, pos_enc_dropout=dropout_prob, training=False, device=DEVICE
+            model,
+            optimizer,
+            loss_fn,
+            batch,
+            pos_enc_dropout=dropout_prob,
+            training=False,
+            device=DEVICE,
         )
         val_loss += loss
     val_loss /= len(val_dl)
@@ -305,7 +336,9 @@ for epoch in range(cfg.n_epochs):
     writer.add_scalar("loss/val", val_loss, epoch)
     writer.add_scalar("loss/dropout_prob", dropout_prob, epoch)
 
-    print(f"Epoch {epoch:04d}/{cfg.n_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+    print(
+        f"Epoch {epoch:04d}/{cfg.n_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}"
+    )
 
     if epoch % cfg.save_per == 0:
         x, y_true = batch
