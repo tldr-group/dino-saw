@@ -211,6 +211,7 @@ class Config:
     batch_drop_schedule: DropSchedule = "linear"
 
     # training hparams
+    base_path: str = "/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224_normal_Dv2"
     max_epochs: int = 100
     batch_size: int = 256
     lr: float = 1e-4
@@ -228,12 +229,13 @@ class Config:
     # continue training
     continue_training: bool = False
     ckpt_path: str = None
+    train_hw: int = 16
 
 
 def main(cfg: Config):
     train_loader = torch.utils.data.DataLoader(
         GenericDatasetStudent(
-            base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224",
+            base_path=cfg.base_path,
             split="train",
             resize_size=cfg.resize_size,
         ),
@@ -244,7 +246,7 @@ def main(cfg: Config):
     )
     val_loader = torch.utils.data.DataLoader(
         GenericDatasetStudent(
-            base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_224",
+            base_path=cfg.base_path,
             split="val",
             resize_size=cfg.resize_size,
         ),
@@ -317,6 +319,7 @@ def main(cfg: Config):
             add_block=cfg.add_block,
             unfreeze_norms=cfg.unfreeze_norms,
             unfreeze_pattern=cfg.unfreeze_pattern,
+            train_hw=cfg.train_hw,
         ),
         ckpt_path=cfg.ckpt_path if cfg.continue_training else None,
         train_dataloaders=train_loader,
@@ -326,17 +329,20 @@ def main(cfg: Config):
 
 if __name__ == "__main__":
     cfg = Config(
-        experiment_name="518_resized_cosine_batch_32_lr=1e-4",
+        experiment_name="normal_518_Dv2_feats_alibi_plus10epochs",
+        base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/testing_dinov2/Dataset/IN_reduced_518_normal_Dv2",
         batch_size=32,
+        max_epochs=104,
         lr=1e-4,
         add_alibi=True,
         zero_pos_emb=True,
-        which_device=[1],
+        which_device=[0],
         loss_type="cosine_similarity",
         resize_size=518,
-        # continue_training=True,
-        # ckpt_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/cosine_sim_batch_128_lr=1e-4-epoch=99-val_loss=0.05_last_epoch.ckpt",
+        continue_training=True,
+        ckpt_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/dinosaw/trained_models_in_steps_new/normal_Dv2_feats_alibi-epoch=93-val_loss=0.05.ckpt",
         # unfreeze_norms=True,
         # unfreeze_pattern=["attn"],
+        train_hw=16,
     )
     main(cfg)
