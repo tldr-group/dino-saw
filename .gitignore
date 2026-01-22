@@ -220,4 +220,7 @@ tmp/
 Dataset_/
 data/
 experiments/*
-notebooks/*
+notebooks/exploration/*
+notebooks/paper_figures/saved
+
+*.ttf
