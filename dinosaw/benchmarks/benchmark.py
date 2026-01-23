@@ -12,17 +12,18 @@ from shutil import rmtree
 from datetime import datetime
 
 from dinosaw.datasets.vis_dataset import visualise_segmentation
-from dinosaw.datasets.benchmark_datasets import VOC_Dataset
+from dinosaw.datasets.benchmark_datasets import VOC_Dataset, ADE20KDataset
 from dinosaw.models.alibi import AlibiSlopeType
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
 from dinosaw.utils import seed_everything, closest_resize
+import time
 
 from typing import Literal
 from dataclasses import dataclass
 
 environ["QT_QPA_PLATFORM"] = "offscreen"
 
-Benchmarks = Literal["VOC12"]
+Benchmarks = Literal["VOC12", "ADE20K"]
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
 ModelType = Literal["base", "plus_alibi"]
@@ -67,6 +68,12 @@ def get_head(benchmark: Benchmarks) -> nn.Sequential:
                 nn.SyncBatchNorm(num_features=384),
                 nn.Dropout2d(p=0.1),
                 nn.Conv2d(in_channels=384, out_channels=21, kernel_size=1),
+            )
+        case "ADE20K":
+            return nn.Sequential(
+                nn.SyncBatchNorm(num_features=384),
+                nn.Dropout2d(p=0.1),
+                nn.Conv2d(in_channels=384, out_channels=151, kernel_size=1),
             )
         case _:
             raise Exception(f"benchmark '{benchmark}' not supported!")
@@ -204,8 +211,8 @@ def feed_batch_get_loss(
     device: str = "cuda",
 ) -> tuple[float, float]:
     x, y_true = batch
-    x = x.to(device)
-    y_true = y_true.to(device)
+    x = x.to(device, non_blocking=True)
+    y_true = y_true.to(device, non_blocking=True)
     if training:
         model.train()
         optimizer.zero_grad()
@@ -218,10 +225,10 @@ def feed_batch_get_loss(
         if training:
             loss.backward()
             optimizer.step()
-    x = x.to("cpu")
-    y_true = y_true.to("cpu")
-    y_pred = y_pred.to("cpu")
-    return loss.item(), metric.item()
+    # x = x.to("cpu")
+    # y_true = y_true.to("cpu")
+    # y_pred = y_pred.to("cpu")
+    return loss.detach(), metric.detach()
 
 
 IMG_L = 518
@@ -232,9 +239,11 @@ seed_everything(SEED)
 
 
 cfg = Config(
-    experiment_name="test_only_224",
-    existing_checkpoint="../experiments/100_224/best_model.pth",
-    batch_size=64,
+    experiment_name="dinov2_ADE20K",
+    benchmark="ADE20K",
+    existing_checkpoint="",
+    model_type="base",
+    batch_size=32,
     lr=1e-3,
     save_per=1,
 )
@@ -250,7 +259,7 @@ writer = SummaryWriter(EXPR_PATH)
 writer.add_text("desc", cfg.experiment_name)
 
 
-DEVICE = "cuda:0"
+DEVICE = "cuda:1"
 CACHE = False
 tr = closest_resize(IMG_L, IMG_L, 14)
 
@@ -264,34 +273,62 @@ match cfg.benchmark:
             base_path="/home/pawlo/Arbeit/positional_bias/dino-saw/Datasets/VOC",
             mode="val",
         )
+    case "ADE20K":
+        train_ds = ADE20KDataset(
+            base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
+            mode="train",
+        )
+        val_ds = ADE20KDataset(
+            base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
+            mode="val",
+        )
 
 print(f"Train dataset size: {len(train_ds)}")
 print(f"Validation dataset size: {len(val_ds)}")
 
-train_dl = DataLoader(train_ds, cfg.batch_size, True, drop_last=True, num_workers=2)
-val_dl = DataLoader(val_ds, cfg.batch_size, True, drop_last=True, num_workers=2)
+train_dl = DataLoader(
+    train_ds,
+    cfg.batch_size,
+    True,
+    drop_last=True,
+    num_workers=4,
+    pin_memory=True,
+    persistent_workers=True,
+    prefetch_factor=4,
+)
+val_dl = DataLoader(
+    val_ds,
+    cfg.batch_size,
+    True,
+    drop_last=True,
+    num_workers=4,
+    pin_memory=True,
+    persistent_workers=True,
+    prefetch_factor=4,
+)
 
 
 # model = AlibiVitWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
 # model.set_alibi_enabled(False)
-print(cfg.existing_checkpoint)
-model = get_model(
-    cfg.model_type,
-    cfg.alibi_slope_type,
-    cfg.norm_alibi,
-    cfg.wrap_alibi,
-    cfg.n_epochs_warmup,
-    cfg.freeze_pos_emb,
-    cfg.zero_pos_emb,
-    DEVICE,
-    cfg.existing_checkpoint,
-    cfg.vit_model_type,
-    cfg.stride,
-    cfg.dino_chk_path,
-)
 
 if cfg.model_type == "base":
     model = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
+else:
+    model = get_model(
+        cfg.model_type,
+        cfg.alibi_slope_type,
+        cfg.norm_alibi,
+        cfg.wrap_alibi,
+        cfg.n_epochs_warmup,
+        cfg.freeze_pos_emb,
+        cfg.zero_pos_emb,
+        DEVICE,
+        cfg.existing_checkpoint,
+        cfg.vit_model_type,
+        cfg.stride,
+        cfg.dino_chk_path,
+    )
+
 
 bench_model = BenchmarkModel(model, cfg, device=DEVICE)
 
@@ -303,8 +340,8 @@ val_losses: list[float] = []
 best_val_loss = 1e6
 
 mean_iou = MulticlassJaccardIndex(
-    num_classes=21 if cfg.benchmark == "VOC12" else 0,
-    ignore_index=255 if cfg.benchmark == "VOC12" else None,
+    num_classes=21 if cfg.benchmark == "VOC12" else 151,
+    ignore_index=255 if cfg.benchmark == "VOC12" else 0,
     average="macro",
 ).to(DEVICE)
 
@@ -315,9 +352,10 @@ mean_iou = MulticlassJaccardIndex(
 # - consider LR scheduling
 
 for epoch in range(cfg.n_epochs):
-    train_loss, train_miou = 0.0, 0.0
+    train_loss_sum, train_miou_sum = 0.0, 0.0
     batch: torch.Tensor
     N_batches = len(train_dl)
+
     for i, batch in enumerate(train_dl):
         loss, miou = feed_batch_get_loss(
             bench_model,
@@ -328,15 +366,15 @@ for epoch in range(cfg.n_epochs):
             training=True,
             device=DEVICE,
         )
-        train_loss += loss
-        train_miou += miou
-        # if i % 50 == 0:
-        #     print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
+        train_loss_sum += loss
+        train_miou_sum += miou
+        if i % 50 == 0:
+            print(f"Train batch {i}/{N_batches}")
 
-    train_loss /= len(train_dl)
-    train_miou /= len(train_dl)
+    train_loss = train_loss_sum.item() / len(train_dl)
+    train_miou = train_miou_sum.item() / len(train_dl)
 
-    val_loss, val_miou = 0.0, 0.0
+    val_loss_sum, val_miou_sum = 0.0, 0.0
     batch: torch.Tensor
     # for batch in [next(iter(val_dl))][:1]:
     for batch in val_dl:
@@ -349,11 +387,11 @@ for epoch in range(cfg.n_epochs):
             training=False,
             device=DEVICE,
         )
-        val_loss += loss
-        val_miou += miou
+        val_loss_sum += loss
+        val_miou_sum += miou
 
-    val_loss /= len(val_dl)
-    val_miou /= len(val_dl)
+    val_loss = val_loss_sum / len(val_dl)
+    val_miou = val_miou_sum / len(val_dl)
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         torch.save(bench_model.state_dict(), f"{EXPR_PATH}/best_model.pth")
