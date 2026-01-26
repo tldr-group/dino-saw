@@ -209,10 +209,16 @@ class PretrainedViTWrapper(nn.Module):
             intermediates_only=True,
         )
 
-    def forward(self, x: torch.Tensor):
-        return self.model(x)
+    def forward(self, x: torch.Tensor, attn_mask=None):
+        return self.model(x, attn_mask)
 
-    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False) -> torch.Tensor:
+    def forward_features(
+        self,
+        x: torch.Tensor,
+        make_2D: bool = False,
+        add_reg: bool = False,
+        attn_mask=None,
+    ) -> torch.Tensor:
         b, _, h, w = x.shape
         p = self.patch_size
         s = self.stride
@@ -226,9 +232,9 @@ class PretrainedViTWrapper(nn.Module):
             return feats
 
         if add_reg:
-            feats = self.model.forward_features(x)
+            feats = self.model.forward_features(x, attn_mask=attn_mask)
         else:  # ignore CLS + reg tokens
-            feats = self.model.forward_features(x)[:, self.n_reg_tokens + 1 :]
+            feats = self.model.forward_features(x, attn_mask=attn_mask)[:, self.n_reg_tokens + 1 :]
         feats = feats.permute((0, 2, 1))
 
         if make_2D and not add_reg:

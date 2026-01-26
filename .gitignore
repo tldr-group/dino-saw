@@ -215,6 +215,7 @@ images/
 .vscode/
 features/
 archive/
+Datasets/
 
 tmp/
 Dataset_/
@@ -224,3 +225,4 @@ notebooks/exploration/*
 notebooks/paper_figures/saved
 
 *.ttf
+AG_plots/
