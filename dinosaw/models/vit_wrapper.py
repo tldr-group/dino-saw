@@ -65,9 +65,9 @@ class Patch:
         def forward(
             self: Attention,
             x: torch.Tensor,
-            attn_mask=None,  # attn_bias=None,
+            attn_mask=None,
+            attn_bias=None,
         ) -> torch.Tensor:
-            # TODO: attn_bias -> attn_mask in new timm, find way to align these
             B, N, C = x.shape
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
             x = flash_attn_qkvpacked_func(qkv)  # type: ignore
@@ -284,38 +284,8 @@ class AlibiVitWrapper(PretrainedViTWrapper):
             blk: AlibiBlock
             blk.attn.set_alibi_slope(slope_type=self.slope_type)
 
-    # def set_distance_matrices(
-    #     self,
-    #     n_tokens_h: int,
-    #     n_tokens_w: int,
-    #     n_reg_tokens: int = 4,
-    #     metric: str = "euclidean",
-    #     normalize: bool = True,
-    #     wrap: bool = True,
-    #     add_cls: bool = True,
-    # ):
-    #     for blk in self.model.blocks:
-    #         blk: AlibiBlock
-    #         blk.set_distance_matrix(
-    #             n_tokens_h=n_tokens_h,
-    #             n_tokens_w=n_tokens_w,
-    #             n_reg_tokens=n_reg_tokens,
-    #             metric=metric,
-    #             normalize=normalize,
-    #             wrap=wrap,
-    #             add_cls=add_cls,
-    #         )
-    #     self.n_reg_tokens = n_reg_tokens
-    #     self.metric = metric
-    #     self.normalize = normalize
-    #     self.wrap = wrap
-    #     self.add_cls = add_cls
-
     def set_alibi_enabled(self, enabled: bool):
         return
-        # for blk in self.model.blocks:
-        #     blk: AlibiBlock
-        #     blk.attn.is_enabled = enabled
 
     def forward(self, x: torch.Tensor):
         # TODO: set alibi distance matrix size
