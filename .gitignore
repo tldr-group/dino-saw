@@ -219,4 +219,10 @@ Datasets/
 
 tmp/
 Dataset_/
+data/
+experiments/*
+notebooks/exploration/*
+notebooks/paper_figures/saved
+
+*.ttf
 AG_plots/

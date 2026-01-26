@@ -18,6 +18,7 @@ def get_distance_matrix(
     wrap: bool = False,
     add_cls: bool = True,
     device: str = "cpu",
+    dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     # TODO: is this (H,W) or (W,H) - and which is right?
     coords = torch.stack(
@@ -49,8 +50,8 @@ def get_distance_matrix(
     n_extra_tokens = int(add_cls) + n_reg_tokens
     # timm prepends [CLS] + [REG]
     D = F.pad(D, (n_extra_tokens, 0, n_extra_tokens, 0), mode="constant")
-    torch.cuda.empty_cache()
-    return D.to(device)
+
+    return D.to(device=device, dtype=dtype)
 
 
 AlibiSlopeType = Literal["fixed", "learned", "constant"]
@@ -63,9 +64,7 @@ def get_alibi_slope(
     match slope_type:
         case "fixed":
             xs = (2**8) ** (1 / num_heads)
-            m = torch.tensor(
-                [1 / xs ** (i + 1) for i in range(num_heads)], device=device
-            )
+            m = torch.tensor([1 / xs ** (i + 1) for i in range(num_heads)], device=device)
         case "learned":
             m = torch.rand(num_heads, device=device)
         case "constant":
@@ -81,9 +80,101 @@ def get_alibi_slope(
     return m
 
 
+class DistanceMatrixWrapper(nn.Module):
+    def __init__(
+        self,
+        n_tokens_h: int,
+        n_tokens_w: int,
+        n_reg_tokens: int = 4,
+        metric: str = "euclidean",
+        normalize: bool = True,
+        wrap: bool = True,
+        add_cls: bool = True,
+    ) -> None:
+        super().__init__()
+
+        self.n_tokens_h = n_tokens_h
+        self.n_tokens_w = n_tokens_w
+        self.n_reg_tokens = n_reg_tokens
+        self.metric = metric
+        self.normalize = normalize
+        self.wrap = wrap
+        self.add_cls = add_cls
+
+        # self.matrix: torch.Tensor | None = None
+
+        self.update(
+            n_tokens_h,
+            n_tokens_w,
+            n_reg_tokens=n_reg_tokens,
+            metric=metric,
+            normalize=normalize,
+            wrap=wrap,
+            add_cls=add_cls,
+            force_update=True,
+        )
+
+    def update(
+        self,
+        n_tokens_h: int,
+        n_tokens_w: int,
+        n_reg_tokens: int = 4,
+        metric: str = "euclidean",
+        normalize: bool = True,
+        wrap: bool = True,
+        add_cls: bool = True,
+        force_update: bool = False,
+    ) -> None:
+        is_stale = False
+        for attr, val in (
+            ("n_tokens_h", n_tokens_h),
+            ("n_tokens_w", n_tokens_w),
+            ("n_reg_tokens", n_reg_tokens),
+            ("metric", metric),
+            ("normalize", normalize),
+            ("wrap", wrap),
+            ("add_cls", add_cls),
+        ):
+            if getattr(self, attr) != val:
+                is_stale = True
+
+        if not is_stale and not force_update:
+            # nop if nothing has changed
+            return
+
+        try:
+            device = self.matrix.device
+            dtype = self.matrix.dtype
+        except AttributeError:
+            device = "cpu"
+            dtype = torch.float32
+
+        distance_matrix = get_distance_matrix(
+            n_tokens_h,
+            n_tokens_w,
+            n_reg_tokens,
+            wrap=wrap,
+            metric=metric,
+            normalize=normalize,
+            add_cls=add_cls,
+            device=device,
+            dtype=dtype,
+        )
+
+        self.n_tokens_h = n_tokens_h
+        self.n_tokens_w = n_tokens_w
+        self.n_reg_tokens = n_reg_tokens
+        self.metric = metric
+        self.normalize = normalize
+        self.wrap = wrap
+        self.add_cls = add_cls
+        self.register_buffer("matrix", distance_matrix, persistent=False)
+
+
 class AlibiAttention(Attention):
     def __init__(
         self,
+        distance_matrix: DistanceMatrixWrapper,
         dim: int,
         num_heads: int = 8,
         qkv_bias: bool = False,
@@ -104,53 +195,50 @@ class AlibiAttention(Attention):
             proj_drop=proj_drop,
             norm_layer=norm_layer,
         )
+        self.distance_matrix = distance_matrix
         self.fused_attn = False
-
         self.set_alibi_slope(slope_type=slope_type)
 
-        self.is_enabled = True
+        self.n_tokens_h = 16
+        self.n_tokens_w = 16
+
+        # self.is_enabled = True
 
     def set_alibi_slope(self, slope_type: AlibiSlopeType):
-        m = get_alibi_slope(
-            self.num_heads, slope_type=slope_type, device=self.qkv.weight.device
-        )
+        m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
         if isinstance(m, torch.Tensor):
-            self.register_buffer("m", m)
+            self.register_buffer("m", m, persistent=False)
         else:
             self.register_parameter("m", m)
 
-    def forward(self, x: torch.Tensor, attn_mask=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask=None, attn_bias=None) -> torch.Tensor:
         B, N, C = x.shape
 
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, self.head_dim)
-            .permute(2, 0, 3, 1, 4)
-        )
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
 
+        # conditionally apply alibi bias
+        # bias = (
+        #     (self.m * self.distance_matrix.data)
+        #     if self.is_enabled
+        #     else torch.zeros_like(self.distance_matrix.data, requires_grad=False)
+        # )
+        bias = self.m * self.distance_matrix.matrix
+        bias = bias.unsqueeze(0)
+
         if self.fused_attn:
-            bias = attn_mask.unsqueeze(0) if attn_mask is not None else None
             x = F.scaled_dot_product_attention(
-                q,
-                k,
-                v,
-                dropout_p=self.attn_drop.p if self.training else 0.0,
-                attn_mask=bias,
+                q, k, v, dropout_p=self.attn_drop.p if self.training else 0.0, attn_mask=bias
             )
         else:
             q = q * self.scale
             attn = q @ k.transpose(-2, -1)
-            bias = (
-                attn_mask.unsqueeze(0).to(attn.device) if attn_mask is not None else 0
-            )
 
             attn = attn + bias
 
             attn = attn.softmax(dim=-1)
             attn = self.attn_drop(attn)
-            attn = attn.to(v.dtype)
             x = attn @ v
 
         x = x.transpose(1, 2).reshape(B, N, C)
@@ -162,6 +250,7 @@ class AlibiAttention(Attention):
 class AlibiBlock(Block):
     def __init__(
         self,
+        distance_matrix: DistanceMatrixWrapper,
         dim: int,
         num_heads: int,
         mlp_ratio: float = 4.0,
@@ -177,7 +266,6 @@ class AlibiBlock(Block):
         act_layer: Type[nn.Module] = nn.GELU,
         norm_layer: Type[nn.Module] = nn.LayerNorm,
         mlp_layer: Type[nn.Module] = Mlp,
-        **kwargs,
     ) -> None:
         super().__init__(
             dim=dim,
@@ -195,6 +283,7 @@ class AlibiBlock(Block):
             mlp_layer=mlp_layer,
         )
         self.attn = AlibiAttention(
+            distance_matrix,
             dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
@@ -213,14 +302,7 @@ if __name__ == "__main__":
     h, w = 8, 30
 
     dm = get_distance_matrix(
-        h,
-        w,
-        n_reg_tokens=0,
-        add_cls=False,
-        metric="euclidean",
-        wrap=True,
-        normalize=False,
-        device="cpu",
+        h, w, n_reg_tokens=0, add_cls=False, metric="euclidean", wrap=True, normalize=False, device="cpu"
     )
     dm_np = dm.detach().cpu().numpy()
     print(dm_np.shape)
