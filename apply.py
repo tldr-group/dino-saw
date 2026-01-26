@@ -1,6 +1,6 @@
 import torch
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
-from dinosaw.utils import load_image, do_2D_pca, to_numpy, closest_crop
+from dinosaw.utils import load_image, do_2D_pca, to_numpy, closest_resize
 
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -14,17 +14,19 @@ model = AlibiVitWrapper(
     normalize=True,
     wrap=True,
 )
-expr = "20251207_2032"
-weights = torch.load(f"experiments/{expr}/best_model.pth", weights_only=True)
+
+weights = torch.load("trained_models/alibi_dv2_vits14_reg.pth", weights_only=True, map_location="cuda:0")
 model.load_state_dict(weights)
 model.eval()
 
 # model = PretrainedViTWrapper(MODEL_LIST[1], stride=4, add_flash_attn=False, device="cuda:0")
 
-img_fname = "cat.jpg"
+img_fname = "snowcat.png"
 _img = Image.open(f"images/{img_fname}").convert("RGB")
+_img = _img.resize((512, 512))
 
-tr = closest_crop(_img.height, _img.width, 14)
+
+tr = closest_resize(_img.height, _img.width, 14)
 img, _ = load_image(f"images/{img_fname}", tr, to_half=False, device_str="cuda:0")
 with torch.no_grad():
     emb = model.forward_features(img, make_2D=True)
