@@ -1,13 +1,12 @@
 import torch
-import torchvision.transforms.functional as TF
-from torch.utils.data import Dataset, DataLoader
+import torchvision.transforms.functional as TF  # type: ignore
+from torch.utils.data import DataLoader
 import numpy as np
 
+from io import BytesIO
 from PIL import Image
 import matplotlib.pyplot as plt
 
-from dinosaw.datasets.train_student_dataset import EmbeddingDataset
-from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper
 from dinosaw.utils import to_numpy, do_2D_pca
 
 
@@ -47,12 +46,13 @@ def visualise(
     img: torch.Tensor | Image.Image,
     lr_feats: torch.Tensor,
     pred_homog_feats: torch.Tensor | None,
-    out_path: str,
-) -> None:
-    # b, c, h, w = hr_feats.shape
+    out_path: str | None = None,
+) -> Image.Image:
     n_rows = 3 if isinstance(pred_homog_feats, torch.Tensor) else 2
+    img_unnormed = unnorm(img)
+    img_rgb = (img_unnormed - img_unnormed.min()) / (img_unnormed.max() - img_unnormed.min())
     arrs = get_arrs_from_batch(
-        img,
+        img_rgb,
         lr_feats,
         pred_homog_feats,
     )
@@ -67,19 +67,28 @@ def visualise(
                 axs[j, i].imshow(sub_arr)
                 axs[j, i].set_axis_off()
     plt.tight_layout()
-    plt.savefig(out_path)
-    plt.close()
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+    pil_img = Image.open(buf).convert("RGB")
+    if out_path:
+        pil_img.save(out_path)
+    return pil_img
 
 
 if __name__ == "__main__":
-    DEVICE = "cuda:1"
+    from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
+    from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper
+
+    DEVICE = "cuda:0"
     dv2 = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
     dv2 = dv2.eval()
 
-    ds = EmbeddingDataset("Dataset/IN_reduced_224", "val")
+    ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "val", store_in_memory=False, norm_feats=True)
     dl = DataLoader(
         ds,
-        20,
+        32,
         True,
         drop_last=True,
         num_workers=4,
@@ -90,4 +99,4 @@ if __name__ == "__main__":
 
     dv2_feats = dv2.forward_features(img.to(DEVICE), make_2D=True)
     print(img.shape, lr.shape, dv2_feats.shape)
-    visualise(unnorm(img).to(torch.uint8), lr, dv2_feats, "tmp/batch_vis.png")
+    visualise(img, lr, dv2_feats, "tmp/batch_vis.png")
