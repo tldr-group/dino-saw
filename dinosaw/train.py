@@ -74,6 +74,7 @@ def get_model(
     stride: int = 14,
     chk_path: str | None = None,
 ) -> nn.Module:
+    print(f"{existing_checkpoint=}")
     match model_type:
         case "base":
             model = PretrainedViTWrapper(
@@ -165,8 +166,8 @@ def feed_batch_get_loss(
     device: str = "cuda",
 ) -> float:
     x, y_true = batch
-    x = x.to(device)
-    y_true = y_true.to(device)
+    x = x.to(device, non_blocking=True)
+    y_true = y_true.to(device, non_blocking=True)
     if training:
         model.train()
         optimizer.zero_grad()
@@ -180,10 +181,10 @@ def feed_batch_get_loss(
         if training:
             loss.backward()
             optimizer.step()
-    x = x.to("cpu")
-    y_true = y_true.to("cpu")
-    y_pred = y_pred.to("cpu")
-    return loss.item()
+    # x = x.to("cpu")
+    # y_true = y_true.to("cpu")
+    # y_pred = y_pred.to("cpu")
+    return loss.detach()
 
 
 IMG_L = 224
@@ -195,7 +196,7 @@ seed_everything(SEED)
 # cfg = Config()
 cfg = Config(
     experiment_name="test",
-    ds_path=f"../Datasets/IN_reduced_224/IN_reduced_224",
+    ds_path=f"/home/pawlo/Arbeit/positional_bias/dino-saw/dinosaw/datasets/data/IN_reduced_dv2_{IMG_L}",
     img_l=IMG_L,
     model_type="plus_alibi",
     vit_model_type=MODEL_LIST[1],
@@ -204,13 +205,13 @@ cfg = Config(
     zero_pos_emb=True,
     freeze_pos_emb=True,
     n_epochs=100,
-    batch_size=16,
-    # channels_to_blank=[47, 113, 117, 359],
+    batch_size=128,
+    channels_to_blank=[47, 113, 117, 359],
     loss_type="cosine",
     n_epochs_warmup=-1,
     init_pos_enc_dropout=1.0,
-    lr=1e-4,
-    # existing_checkpoint="experiments/20251210_1444/best_model.pth",
+    lr=1e-3,
+    # existing_checkpoint="experiments/100_224/best_model.pth",
 )
 print(cfg)
 
