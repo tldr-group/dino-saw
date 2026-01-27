@@ -239,11 +239,11 @@ seed_everything(SEED)
 
 
 cfg = Config(
-    experiment_name="dinov2_ADE20K",
-    benchmark="ADE20K",
-    existing_checkpoint="",
-    model_type="base",
-    batch_size=32,
+    experiment_name="1e-4_VOC",
+    benchmark="VOC12",
+    existing_checkpoint="../experiments/100_224_base_1_518/best_model.pth",
+    model_type="plus_alibi",
+    batch_size=64,
     lr=1e-3,
     save_per=1,
 )
@@ -259,7 +259,7 @@ writer = SummaryWriter(EXPR_PATH)
 writer.add_text("desc", cfg.experiment_name)
 
 
-DEVICE = "cuda:1"
+DEVICE = "cuda:0"
 CACHE = False
 tr = closest_resize(IMG_L, IMG_L, 14)
 
@@ -291,20 +291,20 @@ train_dl = DataLoader(
     cfg.batch_size,
     True,
     drop_last=True,
-    num_workers=4,
-    pin_memory=True,
-    persistent_workers=True,
-    prefetch_factor=4,
+    # num_workers=4,
+    # pin_memory=True,
+    # persistent_workers=True,
+    # prefetch_factor=4,
 )
 val_dl = DataLoader(
     val_ds,
     cfg.batch_size,
     True,
     drop_last=True,
-    num_workers=4,
-    pin_memory=True,
-    persistent_workers=True,
-    prefetch_factor=4,
+    # num_workers=4,
+    # pin_memory=True,
+    # persistent_workers=True,
+    # prefetch_factor=4,
 )
 
 
@@ -371,8 +371,8 @@ for epoch in range(cfg.n_epochs):
         if i % 50 == 0:
             print(f"Train batch {i}/{N_batches}")
 
-    train_loss = train_loss_sum.item() / len(train_dl)
-    train_miou = train_miou_sum.item() / len(train_dl)
+    train_loss = train_loss_sum / len(train_dl)
+    train_miou = train_miou_sum / len(train_dl)
 
     val_loss_sum, val_miou_sum = 0.0, 0.0
     batch: torch.Tensor
