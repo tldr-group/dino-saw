@@ -20,7 +20,7 @@ from typing import Literal
 
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
-ModelType = Literal["base", "plus_alibi"]
+ModelType = Literal["base", "plus_alibi", "nope"]
 
 
 @dataclass
@@ -42,6 +42,7 @@ class Config:
     zero_pos_emb: bool = False
 
     channels_to_blank: list[int] = field(default_factory=lambda: [])
+    channel_dup: bool = False
 
     n_epochs_warmup: int = 1
     n_epochs: int = 100
@@ -49,7 +50,6 @@ class Config:
     lr: float = 1e-4
     optim: Optims = "AdamW"
     loss_type: Losses = "MSE"
-    init_pos_enc_dropout: float = 0.0
 
     save_per: int = 2
 
@@ -87,17 +87,21 @@ def get_model(
                 wrap=wrap_alibi,
                 chk_path=chk_path,
             )
+        case "nope":
+            model = PretrainedViTWrapper(
+                vit_model_type, stride=stride, add_flash_attn=False, device=device, chk_path=chk_path
+            )
         case _:
             raise Exception(f"Unsupported model type {model_type}")
 
-    if freeze_abs_pos_emb or zero_pos_emb:
+    if freeze_abs_pos_emb or zero_pos_emb or model_type == "nope":
         # assert model.model.pos_embed is not None
         if "dv3" in vit_model_type or "dinov3" in vit_model_type:
             pass
         else:
             model.model.pos_embed.requires_grad = False  # freeze pos embedding
 
-    if zero_pos_emb:
+    if zero_pos_emb or model_type == "nope":
         # assert model.model.pos_embed is not None
         if "dv3" in vit_model_type or "dinov3" in vit_model_type:
             print("dinov3, zeroing rope_embed")
@@ -151,7 +155,6 @@ def feed_batch_get_loss(
     optimizer: optim.Optimizer,
     loss_fn,
     batch: torch.Tensor,
-    pos_enc_dropout: float,
     training: bool,
     device: str = "cuda",
 ) -> float:
@@ -164,7 +167,7 @@ def feed_batch_get_loss(
     else:
         model.eval()
     with torch.set_grad_enabled(training):
-        y_pred = model.forward_features(x, make_2D=True, abs_pos_enc_drop_prob=pos_enc_dropout)
+        y_pred = model.forward_features(x, make_2D=True)
         loss = loss_fn(y_pred, y_true)
         if training:
             loss.backward()
@@ -175,32 +178,51 @@ def feed_batch_get_loss(
     return loss.item()
 
 
-IMG_L = 224
 EXPR_PATH = f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}"
 SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
-# cfg = Config()
+IMG_L = 224
+CACHE = True
 cfg = Config(
-    experiment_name="alibi_zero_cosine_loss_dv3_embeds_shared_mat",
-    ds_path=f"data/IN_reduced_dv3_{IMG_L}",
+    experiment_name="alibi_cosine_loss_cb_dv2_embeds_fast",
+    ds_path=f"data/IN_reduced_base_{IMG_L}",
     img_l=IMG_L,
     model_type="plus_alibi",
-    vit_model_type=MODEL_LIST[-1],
-    stride=16,
-    dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
+    vit_model_type=MODEL_LIST[1],
+    stride=14,
     zero_pos_emb=True,
     freeze_pos_emb=True,
     n_epochs=100,
     batch_size=128,
-    # channels_to_blank=[47, 113, 117, 359],
+    channels_to_blank=[47, 113, 117, 359],
+    channel_dup=True,
     loss_type="cosine",
     n_epochs_warmup=-1,
-    init_pos_enc_dropout=1.0,
-    lr=1e-4,
-    # existing_checkpoint="experiments/20251210_1444/best_model.pth",
+    lr=1e-3,
+    # existing_checkpoint="experiments/20260127_1554/best_model.pth",
 )
+# Multiscale training config
+# IMG_L = 518
+# CACHE = False
+# cfg = Config(
+#     experiment_name="alibi_cosine_loss_cb_dv2_embeds_ms",
+#     ds_path=f"data/IN_reduced_base_{IMG_L}",
+#     img_l=IMG_L,
+#     model_type="plus_alibi",
+#     vit_model_type=MODEL_LIST[1],
+#     stride=14,
+#     zero_pos_emb=True,
+#     freeze_pos_emb=True,
+#     n_epochs=1,
+#     batch_size=32,
+#     channels_to_blank=[47, 113, 117, 359],
+#     loss_type="cosine",
+#     n_epochs_warmup=-1,
+#     lr=1e-4,
+#     existing_checkpoint="experiments/20260127_1554/best_model.pth",
+# )
 print(cfg)
 
 try:
@@ -214,13 +236,23 @@ writer = SummaryWriter(EXPR_PATH)
 writer.add_text("desc", cfg.experiment_name)
 
 DEVICE = "cuda:1"
-CACHE = False
+
 tr = closest_resize(cfg.img_l, cfg.img_l, 14)
 train_ds = HomogenizedEmbeddingDataset(
-    cfg.ds_path, "train", transform=tr, store_in_memory=CACHE, channels_to_blank=cfg.channels_to_blank
+    cfg.ds_path,
+    "train",
+    transform=tr,
+    store_in_memory=CACHE,
+    channels_to_blank=cfg.channels_to_blank,
+    channel_dup=cfg.channel_dup,
 )
 val_ds = HomogenizedEmbeddingDataset(
-    cfg.ds_path, "val", transform=tr, store_in_memory=CACHE, channels_to_blank=cfg.channels_to_blank
+    cfg.ds_path,
+    "val",
+    transform=tr,
+    store_in_memory=CACHE,
+    channels_to_blank=cfg.channels_to_blank,
+    channel_dup=cfg.channel_dup,
 )
 
 print(f"Train dataset size: {len(train_ds)}")
@@ -254,8 +286,6 @@ train_losses: list[float] = []
 val_losses: list[float] = []
 best_val_loss = 1e6
 
-dropout_prob = cfg.init_pos_enc_dropout
-
 # TODO:
 # - pca vis for sqircle & dog (2 different res) for base dv2, trained and cleaned
 # - consider test dl for zero pos enc
@@ -267,21 +297,11 @@ for epoch in range(cfg.n_epochs):
         print("Enabling Alibi")
         model.set_alibi_enabled(True)
 
-    if epoch > 2 * cfg.n_epochs_warmup:
-        # schedule dropout
-        n_dropout_epochs_total = cfg.n_epochs - max(2 * cfg.n_epochs_warmup, 0)
-        n_dropout_epochs_current = epoch - max(2 * cfg.n_epochs_warmup, 0)
-
-        frac = n_dropout_epochs_current / n_dropout_epochs_total
-        dropout_prob = cfg.init_pos_enc_dropout + (1 - cfg.init_pos_enc_dropout) * frac
-
     train_loss = 0.0
     batch: torch.Tensor
     N_batches = len(train_dl)
     for i, batch in enumerate(train_dl):
-        loss = feed_batch_get_loss(
-            model, optimizer, loss_fn, batch, pos_enc_dropout=dropout_prob, training=True, device=DEVICE
-        )
+        loss = feed_batch_get_loss(model, optimizer, loss_fn, batch, training=True, device=DEVICE)
         train_loss += loss
         # if i % 50 == 0:
         #     print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
@@ -291,9 +311,7 @@ for epoch in range(cfg.n_epochs):
     batch: torch.Tensor
     # for batch in [next(iter(val_dl))][:1]:
     for batch in val_dl:
-        loss = feed_batch_get_loss(
-            model, optimizer, loss_fn, batch, pos_enc_dropout=dropout_prob, training=False, device=DEVICE
-        )
+        loss = feed_batch_get_loss(model, optimizer, loss_fn, batch, training=False, device=DEVICE)
         val_loss += loss
     val_loss /= len(val_dl)
 
@@ -303,7 +321,6 @@ for epoch in range(cfg.n_epochs):
 
     writer.add_scalar("loss/train", train_loss, epoch)
     writer.add_scalar("loss/val", val_loss, epoch)
-    writer.add_scalar("loss/dropout_prob", dropout_prob, epoch)
 
     print(f"Epoch {epoch:04d}/{cfg.n_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
