@@ -183,31 +183,10 @@ SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
-IMG_L = 224
-CACHE = True
-cfg = Config(
-    experiment_name="alibi_cosine_loss_cb_dv2_embeds_fast",
-    ds_path=f"data/IN_reduced_base_{IMG_L}",
-    img_l=IMG_L,
-    model_type="plus_alibi",
-    vit_model_type=MODEL_LIST[1],
-    stride=14,
-    zero_pos_emb=True,
-    freeze_pos_emb=True,
-    n_epochs=100,
-    batch_size=128,
-    channels_to_blank=[47, 113, 117, 359],
-    channel_dup=True,
-    loss_type="cosine",
-    n_epochs_warmup=-1,
-    lr=1e-3,
-    # existing_checkpoint="experiments/20260127_1554/best_model.pth",
-)
-# Multiscale training config
-# IMG_L = 518
-# CACHE = False
+# IMG_L = 224
+# CACHE = True
 # cfg = Config(
-#     experiment_name="alibi_cosine_loss_cb_dv2_embeds_ms",
+#     experiment_name="alibi_cosine_loss_cb_dv2_embeds_fast",
 #     ds_path=f"data/IN_reduced_base_{IMG_L}",
 #     img_l=IMG_L,
 #     model_type="plus_alibi",
@@ -215,14 +194,35 @@ cfg = Config(
 #     stride=14,
 #     zero_pos_emb=True,
 #     freeze_pos_emb=True,
-#     n_epochs=1,
-#     batch_size=32,
+#     n_epochs=100,
+#     batch_size=128,
 #     channels_to_blank=[47, 113, 117, 359],
+#     channel_dup=False,
 #     loss_type="cosine",
 #     n_epochs_warmup=-1,
-#     lr=1e-4,
-#     existing_checkpoint="experiments/20260127_1554/best_model.pth",
+#     lr=1e-3,
+#     # existing_checkpoint="experiments/20260127_1554/best_model.pth",
 # )
+# Multiscale training config
+IMG_L = 518
+CACHE = False
+cfg = Config(
+    experiment_name="alibi_cosine_loss_cb_dv2_embeds_ms_fast",
+    ds_path=f"data/IN_reduced_base_{IMG_L}",
+    img_l=IMG_L,
+    model_type="plus_alibi",
+    vit_model_type=MODEL_LIST[1],
+    stride=14,
+    zero_pos_emb=True,
+    freeze_pos_emb=True,
+    n_epochs=10,
+    batch_size=32,
+    channels_to_blank=[47, 113, 117, 359],
+    loss_type="cosine",
+    n_epochs_warmup=-1,
+    lr=1e-4,
+    existing_checkpoint="experiments/20260128_1101/best_model.pth",
+)
 print(cfg)
 
 try:
