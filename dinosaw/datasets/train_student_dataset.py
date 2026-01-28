@@ -23,6 +23,7 @@ class HomogenizedEmbeddingDataset(Dataset):
         squeeze_batch_dim_from_image: bool = True,
         squeeze_batch_dim_from_embed: bool = True,
         channels_to_blank: list[int] = [],
+        channel_dup: bool = False,
     ):
         self.img_paths = sorted(glob(f"{base_path}/{split}/imgs/*.png"))
         self.target_paths = sorted(glob(f"{base_path}/{split}/embeddings/*.pt"))
@@ -33,6 +34,7 @@ class HomogenizedEmbeddingDataset(Dataset):
         self.squeeze_batch_dim_from_embed = squeeze_batch_dim_from_embed
         self.squeeze_batch_dim_from_image = squeeze_batch_dim_from_image
         self.channels_to_blank = channels_to_blank
+        self.channel_dup = channel_dup
 
         self.store_in_memory = store_in_memory
 
@@ -55,6 +57,20 @@ class HomogenizedEmbeddingDataset(Dataset):
             if img_filename != target_filename:
                 raise ValueError(f"Filename mismatch at index {idx}: {img_filename}.png vs {target_filename}.pt")
 
+    def operate_on_channels(
+        self, embed: torch.Tensor, channels_to_change: list[int], channel_dup: bool
+    ) -> torch.Tensor:
+        if len(channels_to_change) == 0:
+            return embed
+
+        for ch in channels_to_change:
+            if channel_dup:  # duplicate from previous channel
+                embed[ch, ...] = embed[ch - 1, ...]
+            else:  # if blanking set to 0
+                embed[ch, ...] = 0.0
+
+        return embed
+
     def load_embed(
         self, path: str, squeeze_batch_dim_from_embed: bool = True, norm_feats: bool = False
     ) -> torch.Tensor:
@@ -64,8 +80,8 @@ class HomogenizedEmbeddingDataset(Dataset):
             embed = torch.nn.functional.normalize(embed, p=2, dim=1)
         if squeeze_batch_dim_from_embed:
             embed = embed.squeeze(0)
-        if len(self.channels_to_blank) > 0:
-            embed[self.channels_to_blank, ...] = 0.0
+
+        embed = self.operate_on_channels(embed, self.channels_to_blank, self.channel_dup)
         return embed
 
     def load_image(self, path: str, transform: Compose, squeeze_batch_dim_from_image: bool = True) -> torch.Tensor:
