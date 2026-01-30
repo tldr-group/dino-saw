@@ -41,6 +41,7 @@ MODEL_LIST = [
     "vit_small_patch14_reg4_dinov2.lvd142m",
     # FIT3D finetuned
     "fit3D_vit_small_patch14_reg4_dinov2.lvd142m",
+    "vit_base_patch14_reg4_dinov2.lvd142m",
     # DINOv3
     # "vit_small_plus_patch16_dinov3.lvd1689m",
     "dinov3_vits_patch16_plus_reg4",

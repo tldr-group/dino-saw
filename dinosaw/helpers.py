@@ -8,11 +8,15 @@ from dinosaw.utils import to_numpy, closest_resize, convert_image
 
 from typing import Literal, get_args
 
+import matplotlib.pyplot as plt
+from matplotlib import font_manager
 
-ModelTypes = Literal["dv2", "dvt", "alibi_dv2", "alibi_dv2_h", "alibi_dv2_cb", "nope"]
+
+ModelTypes = Literal["dv2", "dv2_b", "dvt", "alibi_dv2", "alibi_dv2_h", "alibi_dv2_cb", "nope"]
 model_types: tuple[ModelTypes] = get_args(ModelTypes)
 model_names: dict[ModelTypes, str] = {
     "dv2": "DINOv2",
+    "dv2_b": "DINOv2-B",
     "dvt": "DVT",
     "alibi_dv2": "ALiBi-Dv2",
     "alibi_dv2_h": "ALiBi(H)-Dv2",
@@ -21,6 +25,7 @@ model_names: dict[ModelTypes, str] = {
 }
 model_chkpoints: dict[ModelTypes, str] = {
     "dv2": "",
+    "dv2_b": "",
     "dvt": "dvt.pth",
     "alibi_dv2": "alibi_dv2_vits14_reg.pth",
     "alibi_dv2_h": "alibi_homog_dv2_vits14_reg.pth",
@@ -33,9 +38,10 @@ def get_model(model_type: ModelTypes, model_dir: str, device: str, to_half: bool
     S = 14
     model: PretrainedViTWrapper | None = None
 
-    if model_type == "dv2":
+    if model_type in ("dv2", "dv2_b"):
+        model_id = MODEL_LIST[1] if model_type == "dv2" else MODEL_LIST[3]
         model = PretrainedViTWrapper(
-            MODEL_LIST[1],
+            model_id,
             stride=S,
             add_flash_attn=False,
             device=device,
@@ -111,3 +117,16 @@ def get_features(
         emb_np = np.transpose(emb_np, (1, 2, 0))
 
     return emb_np
+
+
+def add_custom_font(font_folder: str, font_name: str = "Grotesk") -> None:
+    try:
+        font_paths = (f"{font_folder}/{font_name}.ttf", f"{font_folder}/{font_name}-Bold.ttf")
+        for font_path in font_paths:
+            font_manager.fontManager.addfont(font_path)
+        prop = font_manager.FontProperties(fname=font_paths[0])
+
+        plt.rcParams["font.family"] = "sans-serif"
+        plt.rcParams["font.sans-serif"] = prop.get_name()
+    except Exception as e:
+        print(f"Can't load custom font: {e} ")
