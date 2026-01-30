@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Literal, TypedDict
 
+
 from sklearn.linear_model import LinearRegression
 
 
@@ -41,8 +42,8 @@ def gen_sample_mask(
     if ramp_type == "radial":
         ramp_h, ramp_w = int(shape[0] * cutoff_frac), int(shape[1] * cutoff_frac)
         h, w = shape
-        x0, x1 = (w - ramp_w) // 2, (w + ramp_w) // 2
-        y0, y1 = (h - ramp_h) // 2, (h + ramp_h) // 2
+        x0, x1 = int(np.ceil((w - ramp_w) / 2)), int(np.floor((w + ramp_w) / 2))
+        y0, y1 = int(np.ceil((h - ramp_h) / 2)), int(np.floor((h + ramp_h) / 2))
     else:
         x0, x1 = 0, int(shape[1] * cutoff_frac)
         y0, y1 = 0, int(shape[0] * cutoff_frac)
@@ -57,14 +58,18 @@ def linear_probe_arr(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndar
     X = feats[sample_mask, :]  # Shape: (num_samples, c)
     y = target[sample_mask]  # Shape: (num_samples,)
 
-    model = LinearRegression()
-    model.fit(X, y)
+    try:
+        model = LinearRegression()
+        model.fit(X, y)
 
-    # Predict on all features
-    X_full = feats.reshape(-1, c)  # Shape: (h*w, c)
-    y_pred = model.predict(X_full)  # Shape: (h*w,)
+        # Predict on all features
+        X_full = feats.reshape(-1, c)  # Shape: (h*w, c)
+        y_pred = model.predict(X_full)  # Shape: (h*w,)
 
-    score = model.score(X_full, target.flatten())  # R^2 score on training data
+        score = model.score(X_full, target.flatten())  # R^2 score on training data
+    except ValueError:
+        y_pred = np.zeros(h * w)
+        score = -1.0
     return y_pred.reshape(h, w), float(score)
 
 
@@ -93,6 +98,8 @@ def do_linear_probe(
     feats: np.ndarray, ramp_type: RampTypes, mask_step=4, mask_cutoff_frac=0.8, probe_by_channel: bool = False
 ) -> LinearProbeResult:
     h, w, c = feats.shape
+
+    feats = np.nan_to_num(feats, nan=0.0)
     sample_mask = gen_sample_mask((h, w), ramp_type, step=mask_step, cutoff_frac=mask_cutoff_frac)
     ramp = get_ramp(ramp_type, h, w)
     stack_pred, stack_r_squared = linear_probe_arr(feats, ramp, sample_mask)
