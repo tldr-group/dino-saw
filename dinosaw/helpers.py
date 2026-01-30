@@ -11,7 +11,7 @@ from typing import Literal, get_args
 
 ModelTypes = Literal["dv2", "dvt", "alibi_dv2", "alibi_dv2_h", "alibi_dv2_cb", "nope"]
 model_types: tuple[ModelTypes] = get_args(ModelTypes)
-model_names = dict[ModelTypes, str] = {
+model_names: dict[ModelTypes, str] = {
     "dv2": "DINOv2",
     "dvt": "DVT",
     "alibi_dv2": "ALiBi-Dv2",
@@ -19,7 +19,7 @@ model_names = dict[ModelTypes, str] = {
     "alibi_dv2_cb": "ALiBi(CB)-Dv2",
     "nope": "NoPE",
 }
-model_chkpoints = dict[ModelTypes, str] = {
+model_chkpoints: dict[ModelTypes, str] = {
     "dv2": "",
     "dvt": "dvt.pth",
     "alibi_dv2": "alibi_dv2_vits14_reg.pth",
@@ -45,7 +45,7 @@ def get_model(model_type: ModelTypes, model_dir: str, device: str, to_half: bool
             model = model.half()
         return model
 
-    chk_path = f"{model_dir}/{model_chkpoints[model_type]}.pth"
+    chk_path = f"{model_dir}/{model_chkpoints[model_type]}"
     weights = torch.load(chk_path, weights_only=True, map_location=device)
     if model_type == "nope":
         model = PretrainedViTWrapper(
@@ -73,6 +73,7 @@ def get_model(model_type: ModelTypes, model_dir: str, device: str, to_half: bool
             normalize=True,
             wrap=True,
         )
+        model.load_state_dict(weights)
     else:
         raise Exception("Invalid model type")
 
@@ -85,7 +86,7 @@ def get_model(model_type: ModelTypes, model_dir: str, device: str, to_half: bool
 
 
 def get_models(
-    model_types: tuple[ModelTypes], model_dir: str, device: str, to_half: bool = False
+    model_types: tuple[ModelTypes, ...], model_dir: str, device: str, to_half: bool = False
 ) -> dict[ModelTypes, PretrainedViTWrapper]:
     return {k: get_model(k, model_dir, device, to_half) for k in model_types}
 
@@ -96,9 +97,10 @@ def get_features(
     channel_last: bool = False,
     channel_blank: bool = False,
     to_half: bool = False,
+    device: str = "cuda:0",
 ) -> np.ndarray:
     tr = closest_resize(pil_img.height, pil_img.width, model.stride)
-    img_tensor = convert_image(pil_img, tr, device_str="cuda:0", to_half=to_half)
+    img_tensor = convert_image(pil_img, tr, device_str=device, to_half=to_half)
     with torch.no_grad():
         emb = model.forward_features(img_tensor, make_2D=True)
     emb_np = to_numpy(emb.squeeze(0))
