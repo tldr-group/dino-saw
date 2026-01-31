@@ -113,13 +113,28 @@ unnormalize = transforms.Normalize(
 )
 
 
-def closest_crop(h: int, w: int, patch_size: int = 14, to_tensor: bool = True) -> transforms.Compose:
+def closest_crop(
+    h: int, w: int, patch_size: int = 14, to_tensor: bool = True, normalize=True
+) -> transforms.Compose:
     # Crop to h,w values that are closest to given patch/stride size
     sub_h: int = h % patch_size
     sub_w: int = w % patch_size
     new_h, new_w = h - sub_h, w - sub_w
-    if to_tensor:
-        transform = transforms.Compose([transforms.CenterCrop((new_h, new_w)), to_norm_tensor])
+    if to_tensor and normalize:
+        transform = transforms.Compose(
+            [transforms.CenterCrop((new_h, new_w)), to_norm_tensor]
+        )
+    elif to_tensor:
+        transform = transforms.Compose(
+            [transforms.CenterCrop((new_h, new_w)), transforms.ToTensor()]
+        )
+    elif normalize:
+        transform = transforms.Compose(
+            [
+                transforms.CenterCrop((new_h, new_w)),
+                transforms.Normalize(mean=MU, std=SIGMA),
+            ]
+        )
     else:
         transform = transforms.Compose(
             [
@@ -129,13 +144,28 @@ def closest_crop(h: int, w: int, patch_size: int = 14, to_tensor: bool = True) -
     return transform
 
 
-def closest_resize(h: int, w: int, patch_size: int = 14, to_tensor: bool = True) -> transforms.Compose:
+def closest_resize(
+    h: int, w: int, patch_size: int = 14, to_tensor: bool = True, normalize=True
+) -> transforms.Compose:
     # Crop to h,w values that are closest to given patch/stride size
     sub_h: int = h % patch_size
     sub_w: int = w % patch_size
     new_h, new_w = h - sub_h, w - sub_w
-    if to_tensor:
-        transform = transforms.Compose([transforms.Resize((new_h, new_w)), to_norm_tensor])
+    if to_tensor and normalize:
+        transform = transforms.Compose(
+            [transforms.Resize((new_h, new_w)), to_norm_tensor]
+        )
+    elif to_tensor:
+        transform = transforms.Compose(
+            [transforms.Resize((new_h, new_w)), transforms.ToTensor()]
+        )
+    elif normalize:
+        transform = transforms.Compose(
+            [
+                transforms.Resize((new_h, new_w)),
+                transforms.Normalize(mean=MU, std=SIGMA),
+            ]
+        )
     else:
         transform = transforms.Compose(
             [
@@ -145,7 +175,9 @@ def closest_resize(h: int, w: int, patch_size: int = 14, to_tensor: bool = True)
     return transform
 
 
-def get_shortest_side_resize_dims(img_h: int, img_w: int, min_l: int) -> tuple[int, int]:
+def get_shortest_side_resize_dims(
+    img_h: int, img_w: int, min_l: int
+) -> tuple[int, int]:
     if min(img_w, img_h) > min_l:
         sf = min(img_w / min_l, img_h / min_l)
     else:
@@ -153,7 +185,9 @@ def get_shortest_side_resize_dims(img_h: int, img_w: int, min_l: int) -> tuple[i
     return (int(max((img_h * sf), min_l)), int(max(img_w * sf, min_l)))
 
 
-def resize_crop(resize_dims: tuple[int, int], crop_dims: tuple[int, int]) -> transforms.Compose:
+def resize_crop(
+    resize_dims: tuple[int, int], crop_dims: tuple[int, int]
+) -> transforms.Compose:
     transform = transforms.Compose(
         [
             transforms.Resize(resize_dims),
@@ -174,7 +208,9 @@ def load_image(
 ) -> tuple[torch.Tensor, Image.Image]:
     # Load image with PIL, convert to tensor by applying $transform, and invert transform to get display image
     image = Image.open(path).convert("RGB")
-    tensor: torch.Tensor = convert_image(image, transform, to_gpu, to_half, batch, device_str=device_str)
+    tensor: torch.Tensor = convert_image(
+        image, transform, to_gpu, to_half, batch, device_str=device_str
+    )
     transformed_img = to_img(unnormalize(tensor.squeeze(0)))
     return tensor, transformed_img
 
@@ -216,7 +252,9 @@ def normalize(t_tens):
     return (t_tens - t_tens.min()) / (t_tens.max() - t_tens.min())
 
 
-def translate_tensor_wrap(x: torch.Tensor, step_x: int = 0, step_y: int = 0) -> torch.Tensor:
+def translate_tensor_wrap(
+    x: torch.Tensor, step_x: int = 0, step_y: int = 0
+) -> torch.Tensor:
     """
     Circularly translate tensor using wrap boundary conditions.
 
@@ -230,13 +268,19 @@ def translate_tensor_wrap(x: torch.Tensor, step_x: int = 0, step_y: int = 0) -> 
     """
 
     if not isinstance(step_x, (int,)) or not isinstance(step_y, (int,)):
-        raise ValueError("translate_tensor_wrap expects integer step_x and step_y for exact circular wrap.")
+        raise ValueError(
+            "translate_tensor_wrap expects integer step_x and step_y for exact circular wrap."
+        )
     # torch.roll uses order: dims (H dim index 2, W dim index 3)
     return torch.roll(x, shifts=(step_y, step_x), dims=(2, 3))
 
 
 def revert_translation_wrap(
-    feat: torch.Tensor, step_x: int = 0, step_y: int = 0, scale_factor: int = 14, require_exact_division: bool = True
+    feat: torch.Tensor,
+    step_x: int = 0,
+    step_y: int = 0,
+    scale_factor: int = 14,
+    require_exact_division: bool = True,
 ) -> torch.Tensor:
     """
     Revert an image-space integer translation on a feature map using circular wrapping.
@@ -287,14 +331,18 @@ def translate_14(model, img, x_step, y_step, plot: bool = False):
         x_step, y_step = x_step * 14, y_step * 14
         tensor_list = []
         for x_step_, y_step_ in zip(x_step, y_step):
-            tensor_list.append(translate_tensor_wrap(img, step_x=int(x_step_), step_y=int(y_step_)))
+            tensor_list.append(
+                translate_tensor_wrap(img, step_x=int(x_step_), step_y=int(y_step_))
+            )
         # tensor_list.reverse()
         batched_tensor = torch.concat(tensor_list, dim=0)
         # print(f"{batched_tensor.shape=}")
 
         # inference
         with torch.inference_mode():
-            pred = model.forward_features(batched_tensor.float(), make_2D=True)  # .to("cpu").to("cuda")
+            pred = model.forward_features(
+                batched_tensor.float(), make_2D=True
+            )  # .to("cpu").to("cuda")
         # print(f"{pred.shape}")
 
         res_list = []
@@ -318,17 +366,25 @@ def translate_14(model, img, x_step, y_step, plot: bool = False):
 
         # inference
         with torch.inference_mode():
-            pred = model.forward_features(t_tens.float(), make_2D=True)  # .to("cpu").to("cuda")
+            pred = model.forward_features(
+                t_tens.float(), make_2D=True
+            )  # .to("cpu").to("cuda")
         # print(f"{pred.shape}")
 
         un_ten = revert_translation_wrap(
-            pred, step_x=x_step, step_y=y_step, scale_factor=14, require_exact_division=False
+            pred,
+            step_x=x_step,
+            step_y=y_step,
+            scale_factor=14,
+            require_exact_division=False,
         )  # .detach().cpu().squeeze().transpose(2, 0).float()
 
         if plot:
             plt_t_tens = t_tens.clone().detach().cpu().squeeze().transpose(2, 0).float()
             fig, ax = plt.subplots(1, 4, figsize=(15, 5))
-            ax[0].imshow(normalize(img.detach().cpu().squeeze().transpose(2, 0).float()))
+            ax[0].imshow(
+                normalize(img.detach().cpu().squeeze().transpose(2, 0).float())
+            )
             ax[0].set_title("orig image")
             ax[1].imshow(normalize(plt_t_tens))
             ax[1].set_title("translated image")
@@ -340,7 +396,9 @@ def translate_14(model, img, x_step, y_step, plot: bool = False):
         return un_ten
 
 
-def batched_translate_and_predict(model, img, x_step, y_step, scale_factor=14, device="cuda"):
+def batched_translate_and_predict(
+    model, img, x_step, y_step, scale_factor=14, device="cuda"
+):
     # ensure img has batch dim
     if img.dim() == 3:
         img = img.unsqueeze(0)  # (1, C, H, W)
@@ -352,12 +410,17 @@ def batched_translate_and_predict(model, img, x_step, y_step, scale_factor=14, d
     y_steps = [int(y * 14) for y in y_step]
 
     # Build batched translated tensor (on device)
-    translated_list = [torch.roll(img, shifts=(ys, xs), dims=(2, 3)) for xs, ys in zip(x_steps, y_steps)]
+    translated_list = [
+        torch.roll(img, shifts=(ys, xs), dims=(2, 3))
+        for xs, ys in zip(x_steps, y_steps)
+    ]
     batched_tensor = torch.cat(translated_list, dim=0)  # shape (N, C, H, W)
 
     # Inference in single batch on GPU
     with torch.inference_mode():
-        pred = model.forward_features(batched_tensor.float(), make_2D=True)  # stays on device
+        pred = model.forward_features(
+            batched_tensor.float(), make_2D=True
+        )  # stays on device
     print(pred.shape)
 
     # Revert translations on the predictions (inverse roll)
@@ -399,7 +462,9 @@ def translate(model, img, factor=4, show_progress=True):
     if show_progress:
         from tqdm import tqdm
 
-        for x, y in tqdm(zip(x_steps.flatten().astype(int), y_steps.flatten().astype(int))):
+        for x, y in tqdm(
+            zip(x_steps.flatten().astype(int), y_steps.flatten().astype(int))
+        ):
             # print(res.shape, translate_14(img, x_step=int(x), y_step=int(y)).)
             res += translate_14(model, img, x_step=int(x), y_step=int(y))  # .cpu()
     else:
@@ -432,13 +497,21 @@ def get_ramp(dir: Literal["lr", "ud", "diag", "radial"], h: int, w: int) -> np.n
 
 
 def gen_sample_mask(
-    shape: tuple[int, int], step: int = 4, cutoff_frac: float | tuple[float, float] = 1.0
+    shape: tuple[int, int],
+    step: int = 4,
+    cutoff_frac: float | tuple[float, float] = 1.0,
 ) -> np.ndarray:
     """Generate a sampling mask for an array, taking every `step`-th element."""
     mask = np.zeros(shape, dtype=bool)
     if isinstance(cutoff_frac, tuple):
-        cutoff_x0, cutoff_y0 = int(shape[0] * cutoff_frac[0]), int(shape[1] * cutoff_frac[0])
-        cutoff_x1, cutoff_y1 = int(shape[0] * cutoff_frac[1]), int(shape[1] * cutoff_frac[1])
+        cutoff_x0, cutoff_y0 = (
+            int(shape[0] * cutoff_frac[0]),
+            int(shape[1] * cutoff_frac[0]),
+        )
+        cutoff_x1, cutoff_y1 = (
+            int(shape[0] * cutoff_frac[1]),
+            int(shape[1] * cutoff_frac[1]),
+        )
         mask[cutoff_y0:cutoff_y1:step, cutoff_x0:cutoff_x1:step] = True
     else:
         cutoff_y, cutoff_x = int(shape[0] * cutoff_frac), int(shape[1] * cutoff_frac)
@@ -446,7 +519,9 @@ def gen_sample_mask(
     return mask
 
 
-def linear_probe(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) -> tuple[np.ndarray, float]:
+def linear_probe(
+    feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray
+) -> tuple[np.ndarray, float]:
     """Train a linear regression model on sampled features to predict the target."""
     c, h, w = feats.shape
     X = feats[:, sample_mask].T  # Shape: (num_samples, c)
@@ -463,7 +538,9 @@ def linear_probe(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray)
     return y_pred.reshape(h, w), float(score)
 
 
-def probe_stack(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) -> tuple[np.ndarray, list[float]]:
+def probe_stack(
+    feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray
+) -> tuple[np.ndarray, list[float]]:
     preds = np.zeros_like(feats)
     scores: list[float] = []
     c, _, _ = feats.shape
@@ -475,7 +552,9 @@ def probe_stack(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) 
     return preds, scores
 
 
-def linear_probe_by_channel(feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray) -> tuple[np.ndarray, float]:
+def linear_probe_by_channel(
+    feats: np.ndarray, target: np.ndarray, sample_mask: np.ndarray
+) -> tuple[np.ndarray, float]:
     c, h, w = feats.shape
     scores = []
     for idx in range(c):
@@ -492,7 +571,11 @@ def probe(
     mask_cutoff_frac=0.8,
     by_channel=False,
 ):
-    input_preds_, remove_channels_, titles_ = input_preds.copy(), remove_channels.copy(), titles.copy()
+    input_preds_, remove_channels_, titles_ = (
+        input_preds.copy(),
+        remove_channels.copy(),
+        titles.copy(),
+    )
     N_COLS = len(input_preds_) + 1
     WIDTH = 4
     input_np = []
