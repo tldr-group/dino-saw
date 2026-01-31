@@ -206,12 +206,12 @@ def get_model(
 
 class BenchmarkModel(nn.Module):
     def __init__(
-        self, model: PretrainedViTWrapper, cfg: Config, device: torch.device
+        self, model: PretrainedViTWrapper, cfg: Config, device: torch.device, size: int
     ) -> None:
         super().__init__()
 
         self.channels_to_blank = cfg.channels_to_blank
-
+        self.size = size
         self.dino = model.eval()
 
         # freezing dino backbone
@@ -226,7 +226,7 @@ class BenchmarkModel(nn.Module):
             lr_feats[:, self.channels_to_blank, :, :] = 0
         lr_pred = self.head(lr_feats)
         hr_pred = nn.functional.interpolate(
-            input=lr_pred, size=(518, 518), mode="bilinear"
+            input=lr_pred, size=(self.size, self.size), mode="bilinear"
         )
         return hr_pred
 
@@ -272,7 +272,7 @@ def feed_batch_get_loss(
     return loss.detach(), metric.detach()
 
 
-IMG_L = 518
+IMG_L = 518 * 2
 SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
@@ -283,7 +283,7 @@ cfg = Config(
     benchmark="m-cashew-plant",
     existing_checkpoint="../experiments/20260129_0858_homog_bs_256_1e-4_200_epochs_1e-4_5_ms_1e-4/best_model.pth",
     model_type="plus_alibi",
-    batch_size=32,
+    batch_size=16,
     lr=1e-3,
     save_per=1,
 )
@@ -375,7 +375,7 @@ else:
     )
 
 
-bench_model = BenchmarkModel(model, cfg, device=DEVICE)
+bench_model = BenchmarkModel(model, cfg, device=DEVICE, size=IMG_L)
 
 optimizer = get_optim(cfg.optim, bench_model, cfg.lr)
 loss_fn = get_loss(cfg.loss_type, cfg.benchmark)
