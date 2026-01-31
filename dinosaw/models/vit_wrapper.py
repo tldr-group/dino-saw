@@ -45,6 +45,12 @@ MODEL_LIST = [
     # DINOv3
     # "vit_small_plus_patch16_dinov3.lvd1689m",
     "dinov3_vits_patch16_plus_reg4",
+    "vit_small_patch16_224.dino",
+    "vit_base_patch16_224.mae",
+    "vit_base_patch16_clip_224.openai",
+    "eva02_base_patch14_224.mim_in22k",
+    "samvit_base_patch16.sa1b",
+    "convnextv2_tiny.fcmae",
 ]
 MODEL_MAP: dict[FeatureType, str] = {
     "FEATUP": MODEL_LIST[2],
@@ -112,14 +118,15 @@ class PretrainedViTWrapper(nn.Module):
         self.patch_size = 14 if patch_size_from_id is None else int(patch_size_from_id.group(1))
 
         n_reg_tokens_from_id = re.search(r"reg(\d+)", model_identifier)
-        self.n_reg_tokens = 4 if n_reg_tokens_from_id is None else int(n_reg_tokens_from_id.group(1))
+        self.n_reg_tokens = 0 if n_reg_tokens_from_id is None else int(n_reg_tokens_from_id.group(1))
+        self.n_cls_tokens = 0 if "sam" in model_identifier else 1
 
         self.dynamic_img_size = dynamic_img_size
         self.dynamic_img_pad = dynamic_img_pad
         self.model, self.transformation = self.create_model(model_identifier, device, **kwargs)
 
         # overwrite the stride size
-        if stride != self.model.patch_embed.proj.stride[0]:
+        if stride != self.model.patch_embed.proj.stride[0] and "convnext" not in model_identifier:
             self.model.patch_embed.proj.stride = (stride, stride)
 
             def dynamic_feat_size(self, img_size: tuple[int, int]) -> tuple[int, int]:
@@ -161,19 +168,28 @@ class PretrainedViTWrapper(nn.Module):
         is_dv3 = "dinov3" in model_identifier
         if is_dv3:
             path = kwargs["chk_path"]
+            conf_path = kwargs["conf_path"]
             assert path is not None
-            model = torch.hub.load("dinov3", "dinov3_vits16plus", source="local", weights=path)
+            model = torch.hub.load(conf_path, "dinov3_vits16plus", source="local", weights=path)
             return model, None
 
-        model = create_model(
-            model_identifier,
-            pretrained=True,  # True,
-            num_classes=0,
-            dynamic_img_size=self.dynamic_img_size,
-            dynamic_img_pad=self.dynamic_img_pad,
-            pretrained_strict=False,
-            **kwargs,
-        )
+        if "sam" in model_identifier or "conv" in model_identifier:
+            model = create_model(
+                model_identifier,
+                pretrained=True,  # True,
+                num_classes=0,
+                **kwargs,
+            )
+        else:
+            model = create_model(
+                model_identifier,
+                pretrained=True,  # True,
+                num_classes=0,
+                dynamic_img_size=self.dynamic_img_size,
+                dynamic_img_pad=self.dynamic_img_pad,
+                pretrained_strict=False,
+                **kwargs,
+            )
         # Different models have different data configurations
         # e.g., their training resolution, normalization, etc, are different
         # data_config = resolve_model_data_config(model=model)
@@ -234,7 +250,10 @@ class PretrainedViTWrapper(nn.Module):
         if add_reg:
             feats = self.model.forward_features(x)
         else:  # ignore CLS + reg tokens
-            feats = self.model.forward_features(x)[:, self.n_reg_tokens + 1 :]
+            feats = self.model.forward_features(x)[:, self.n_reg_tokens + self.n_cls_tokens :]
+
+        if "sam" in self.model_identifier:
+            return feats
         feats = feats.permute((0, 2, 1))
 
         if make_2D and not add_reg:
