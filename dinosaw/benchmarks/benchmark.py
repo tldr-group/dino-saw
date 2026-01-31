@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 from torch import nn, optim
+import geobench
+from dinosaw.models.Dv3_DPT import DPTHead
 
 from torch.utils.tensorboard.writer import SummaryWriter
 from torch.utils.data import DataLoader
@@ -12,14 +14,19 @@ from shutil import rmtree
 from datetime import datetime
 
 from dinosaw.datasets.vis_dataset import visualise_segmentation
-from dinosaw.datasets.benchmark_datasets import VOC_Dataset, ADE20KDataset
+from dinosaw.datasets.benchmark_datasets import (
+    VOC_Dataset,
+    ADE20KDataset,
+    GeoBenchDataset,
+    Satellites,
+)
 from dinosaw.models.alibi import AlibiSlopeType
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
 from dinosaw.utils import seed_everything, closest_resize
 import time
 
 from typing import Literal
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 environ["QT_QPA_PLATFORM"] = "offscreen"
 
@@ -49,7 +56,7 @@ class Config:
     dino_chk_path: str | None = None  # Dv3?
 
     # benchmark specific
-    benchmark: Benchmarks = "VOC12"
+    benchmark: Benchmarks | Satellites = "VOC12"
 
     # training
     n_epochs: int = 50
@@ -57,11 +64,11 @@ class Config:
     lr: float = 1e-3
     optim: Optims = "AdamW"
     loss_type: Losses = "CE"
-
+    channels_to_blank: list[int] | None = None
     save_per: int = 2
 
 
-def get_head(benchmark: Benchmarks) -> nn.Sequential:
+def get_head(benchmark: Benchmarks) -> nn.Sequential | DPTHead:
     match benchmark:
         case "VOC12":
             return nn.Sequential(
@@ -75,6 +82,25 @@ def get_head(benchmark: Benchmarks) -> nn.Sequential:
                 nn.Dropout2d(p=0.1),
                 nn.Conv2d(in_channels=384, out_channels=151, kernel_size=1),
             )
+        case "LandSat":
+            return nn.Sequential(
+                nn.SyncBatchNorm(num_features=384),
+                nn.Dropout2d(p=0.1),
+                nn.Conv2d(in_channels=384, out_channels=134, kernel_size=1),
+            )
+        case "m-cashew-plant":
+            return nn.Sequential(
+                nn.SyncBatchNorm(num_features=384),
+                nn.Dropout2d(p=0.1),
+                nn.Conv2d(in_channels=384, out_channels=7, kernel_size=1),
+            )
+
+            # DPTHead(
+            #     in_channels=(384, 384, 384, 384),
+            #     channels=256,
+            #     post_process_channels=[384, 192, 97, 64],
+            #     n_output_channels=7,
+            # )
         case _:
             raise Exception(f"benchmark '{benchmark}' not supported!")
 
@@ -184,6 +210,8 @@ class BenchmarkModel(nn.Module):
     ) -> None:
         super().__init__()
 
+        self.channels_to_blank = cfg.channels_to_blank
+
         self.dino = model.eval()
 
         # freezing dino backbone
@@ -194,6 +222,8 @@ class BenchmarkModel(nn.Module):
 
     def forward(self, x):
         lr_feats = self.dino.forward_features(x, make_2D=True)
+        if self.channels_to_blank is not None:
+            lr_feats[:, self.channels_to_blank, :, :] = 0
         lr_pred = self.head(lr_feats)
         hr_pred = nn.functional.interpolate(
             input=lr_pred, size=(518, 518), mode="bilinear"
@@ -210,7 +240,18 @@ def feed_batch_get_loss(
     training: bool,
     device: str = "cuda",
 ) -> tuple[float, float]:
-    x, y_true = batch
+    x, y_true = (
+        batch
+        # if cfg.benchmark != "LandSat"
+        # else (
+        #     nn.functional.interpolate(batch["image"], (518, 518)),
+        #     nn.functional.interpolate(
+        #         batch["mask"].unsqueeze(1).float(), (518, 518), mode="nearest-exact"
+        #     )
+        #     .squeeze()
+        #     .long(),
+        # )
+    )
     x = x.to(device, non_blocking=True)
     y_true = y_true.to(device, non_blocking=True)
     if training:
@@ -232,23 +273,25 @@ def feed_batch_get_loss(
 
 
 IMG_L = 518
-EXPR_PATH = f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}"
 SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
 
 cfg = Config(
-    experiment_name="1e-4_VOC",
-    benchmark="VOC12",
-    existing_checkpoint="../experiments/100_224_base_1_518/best_model.pth",
+    experiment_name="test_geobench",
+    benchmark="m-cashew-plant",
+    existing_checkpoint="../experiments/20260129_0858_homog_bs_256_1e-4_200_epochs_1e-4_5_ms_1e-4/best_model.pth",
     model_type="plus_alibi",
-    batch_size=64,
+    batch_size=32,
     lr=1e-3,
     save_per=1,
 )
 print(cfg)
 
+EXPR_PATH = (
+    f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}_{cfg.experiment_name}"
+)
 try:
     rmtree(EXPR_PATH)
 except FileNotFoundError:
@@ -282,6 +325,9 @@ match cfg.benchmark:
             base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
             mode="val",
         )
+    case "m-cashew-plant":
+        train_ds = GeoBenchDataset("m-cashew-plant", mode="train", size=IMG_L)
+        val_ds = GeoBenchDataset("m-cashew-plant", mode="valid", size=IMG_L)
 
 print(f"Train dataset size: {len(train_ds)}")
 print(f"Validation dataset size: {len(val_ds)}")
@@ -306,7 +352,6 @@ val_dl = DataLoader(
     # persistent_workers=True,
     # prefetch_factor=4,
 )
-
 
 # model = AlibiVitWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
 # model.set_alibi_enabled(False)
@@ -339,11 +384,30 @@ train_losses: list[float] = []
 val_losses: list[float] = []
 best_val_loss = 1e6
 
-mean_iou = MulticlassJaccardIndex(
-    num_classes=21 if cfg.benchmark == "VOC12" else 151,
-    ignore_index=255 if cfg.benchmark == "VOC12" else 0,
-    average="macro",
-).to(DEVICE)
+match cfg.benchmark:
+    case "VOC12":
+        mean_iou = MulticlassJaccardIndex(
+            num_classes=21,
+            ignore_index=255,
+            average="macro",
+        ).to(DEVICE)
+    case "ADE20K":
+        mean_iou = MulticlassJaccardIndex(
+            num_classes=151,
+            ignore_index=0,
+            average="macro",
+        ).to(DEVICE)
+    case "LandSat":
+        mean_iou = MulticlassJaccardIndex(
+            num_classes=134,
+            average="macro",
+        ).to(DEVICE)
+    case "m-cashew-plant":
+        mean_iou = MulticlassJaccardIndex(
+            num_classes=7,
+            average="macro",
+        ).to(DEVICE)
+
 
 # TODO:
 # - pca vis for sqircle & dog (2 different res) for base dv2, trained and cleaned
@@ -406,7 +470,18 @@ for epoch in range(cfg.n_epochs):
     )
 
     if epoch % cfg.save_per == 0:
-        x, y_true = batch
+        x, y_true = (
+            batch
+            # if cfg.benchmark != "LandSat"
+            # else (
+            #     nn.functional.interpolate(batch["image"], (518, 518)),
+            #     nn.functional.interpolate(
+            #         batch["mask"].unsqueeze(1).float(), (518, 518)
+            #     )
+            #     .squeeze()
+            #     .long(),
+            # )
+        )
         x = x[:N_VIS].to(DEVICE)
         y_true = y_true[:N_VIS].to(DEVICE)
         with torch.no_grad():

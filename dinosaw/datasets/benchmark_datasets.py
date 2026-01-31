@@ -6,12 +6,22 @@ from torchvision.transforms.functional import pil_to_tensor
 from torch.utils.data import Dataset
 import numpy as np
 from dinosaw.utils import load_image, resize_crop
+import dinosaw.utils as utils
+import geobench
 import glob
 
 
 from typing import Literal
 
 Mode = Literal["train", "val"]
+Satellites = Literal[
+    "m-cashew-plant",
+    "m-pv4ger-seg",
+    "m-SA-crop-type",
+    "m-chesapeake",
+    "m-NeonTree",
+    "m-nz-cattle",
+]
 
 
 class VOC_Dataset(Dataset):
@@ -198,6 +208,65 @@ class ADE20KDataset(Dataset):
         # print(target_transformed.max(), target_transformed.min())
         # label = to_ADE20K_label(target_transformed)
         return target_transformed.long()
+
+
+class GeoBenchDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        benchmark_name: Satellites,
+        mode: Mode,
+        size=518,
+        dtype: torch.dtype = torch.float32,
+    ) -> None:
+        super().__init__()
+        self.dtype = dtype
+        self.size = size
+
+        self.benchmark_name = benchmark_name
+
+        for task in geobench.task_iterator(benchmark_name="segmentation_v1.0"):
+            if task.dataset_name == benchmark_name:
+                print(f"Task {task.dataset_name}:\n  {task}\n")
+                self.dataset = task.get_dataset(
+                    split=mode, band_names=("red", "green", "blue")
+                )
+
+        # shape = self.dataset[0].label.data.shape
+        self.tr = utils.closest_resize(self.size, self.size, to_tensor=False)
+        self.target_tr = utils.closest_resize(
+            self.size, self.size, to_tensor=False, normalize=False
+        )
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def get_target(self, index):
+        target = utils.convert_image(
+            torch.tensor(self.dataset[index].label.data).unsqueeze(0), self.target_tr
+        ).squeeze()
+
+        return target.cpu()
+
+    def get_image(self, index):
+        bands = []
+        for band in self.dataset[index].bands:
+            if band.band_info.name[-5:].strip() in ("- Red", "Red", "Green", "Blue"):
+                bands.append(torch.tensor(band.data))
+                # print(band.band_info.name)
+
+        # flipping to right RGB color orientation
+        if self.benchmark_name in ("m-cashew-plant", "m-SA-crop-type"):
+            image = utils.convert_image(torch.stack(bands).flip(0).float(), self.tr)
+        else:
+            image = utils.convert_image(torch.stack(bands).float(), self.tr)
+
+        return image.squeeze().cpu()
+
+    def __getitem__(self, index):
+        image = self.get_image(index)
+        target = self.get_target(index)
+
+        return image.to(self.dtype), target.long()
 
 
 if __name__ == "__main__":
