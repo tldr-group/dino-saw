@@ -51,6 +51,10 @@ MODEL_LIST = [
     "eva02_base_patch14_224.mim_in22k",
     "samvit_base_patch16.sa1b",
     "convnextv2_tiny.fcmae",
+    # "vit_base_patch16_224.augreg2_in21k_ft_in1k",
+    "vit_base_patch16_clip_224.laion2b_ft_in12k_in1k",
+    "deit3_small_patch16_224.fb_in1k",
+    "tiny_vit_5m_224.dist_in22k_ft_in1k",
 ]
 MODEL_MAP: dict[FeatureType, str] = {
     "FEATUP": MODEL_LIST[2],
