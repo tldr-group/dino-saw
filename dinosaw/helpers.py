@@ -15,6 +15,7 @@ from matplotlib import font_manager
 ModelTypes = Literal[
     "dv2",
     "dv2_b",
+    "dv2_cb",
     "dvt",
     "alibi_dv2",
     "alibi_dv2_h",
@@ -27,8 +28,25 @@ ModelTypes = Literal[
     "eva02_b",
     "sam_b",
     "convnext",
+    "vit_b_in",
+    "deit",
+    "vit_t_in",
 ]
-TimmModels = Literal["dv2", "dv2_b", "dv", "dv3", "vit_b", "clip_b", "eva02_b", "sam_b", "convnext"]
+TimmModels = Literal[
+    "dv2",
+    "dv2_b",
+    "dv2_cb",
+    "dv",
+    "dv3",
+    "vit_b",
+    "clip_b",
+    "eva02_b",
+    "sam_b",
+    "convnext",
+    "vit_b_in",
+    "deit",
+    "vit_t_in",
+]
 timm_models = get_args(TimmModels)
 model_types: tuple[ModelTypes] = get_args(ModelTypes)
 model_names: dict[ModelTypes, str] = {
@@ -45,6 +63,10 @@ model_names: dict[ModelTypes, str] = {
     "eva02_b": "EVA02-B",
     "sam_b": "SAM-B",
     "convnext": "",
+    "vit_b": "ViT-B",
+    "vit_b_in": "ViT-B-INet",
+    "deit": "",
+    "vit_t_in": "",
 }
 model_chkpoints: dict[ModelTypes, str] = {
     "dv2": "",
@@ -61,6 +83,9 @@ model_chkpoints: dict[ModelTypes, str] = {
     "eva02_b": "",
     "sam_b": "",
     "convnext": "",
+    "vit_b_in": "",
+    "deit": "",
+    "vit_t_in": "",
 }
 model_name_to_timm: dict[TimmModels, str] = {
     "dv2": MODEL_LIST[1],
@@ -72,6 +97,10 @@ model_name_to_timm: dict[TimmModels, str] = {
     "eva02_b": MODEL_LIST[8],
     "sam_b": MODEL_LIST[9],
     "convnext": MODEL_LIST[10],
+    "vit_b_in": MODEL_LIST[11],
+    "deit": MODEL_LIST[12],
+    "vit_t_in": MODEL_LIST[13],
+    "dv2_cb": MODEL_LIST[1],
 }
 
 
@@ -80,6 +109,7 @@ def get_model(
 ) -> PretrainedViTWrapper:
     S = 14
     model: PretrainedViTWrapper | None = None
+    conf_path = conf_path if "dv3" in model_type else None
 
     if model_type in timm_models:
         model_id = model_name_to_timm[model_type]
@@ -139,9 +169,13 @@ def get_model(
 
 
 def get_models(
-    model_types: tuple[ModelTypes, ...], model_dir: str, device: str, to_half: bool = False
+    model_types: tuple[ModelTypes, ...],
+    model_dir: str,
+    device: str,
+    to_half: bool = False,
+    conf_path: str | None = None,
 ) -> dict[ModelTypes, PretrainedViTWrapper]:
-    return {k: get_model(k, model_dir, device, to_half) for k in model_types}
+    return {k: get_model(k, model_dir, device, to_half, conf_path=conf_path) for k in model_types}
 
 
 def get_features(
