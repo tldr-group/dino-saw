@@ -55,6 +55,7 @@ MODEL_LIST = [
     "vit_base_patch16_clip_224.laion2b_ft_in12k_in1k",
     "deit3_small_patch16_224.fb_in1k",
     "tiny_vit_5m_224.dist_in22k_ft_in1k",
+    "vit_base_patch16_224.dino",
 ]
 MODEL_MAP: dict[FeatureType, str] = {
     "FEATUP": MODEL_LIST[2],
