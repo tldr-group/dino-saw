@@ -19,7 +19,7 @@ def get_ramp(ramp_type: RampTypes, h: int, w: int) -> np.ndarray:
         ramp = np.tile(np.linspace(0, 1, h), (w, 1)).T
         return np.expand_dims(ramp, axis=-1)
     elif ramp_type == "diag":
-        ramp = np.linspace(0, 1, max(h, w))[:h, None] + np.linspace(0, 1, max(h, w))[:w]
+        ramp = (np.linspace(0, 1, max(h, w))[:h, None] + np.linspace(0, 1, max(h, w))[:w]) / 2
         return np.expand_dims(ramp, axis=-1)
     elif ramp_type == "radial":
         yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
