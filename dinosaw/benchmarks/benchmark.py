@@ -272,18 +272,18 @@ def feed_batch_get_loss(
     return loss.detach(), metric.detach()
 
 
-IMG_L = 518 * 2
+IMG_L = 518  # * 2
 SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
 
 cfg = Config(
-    experiment_name="test_geobench",
-    benchmark="m-cashew-plant",
-    existing_checkpoint="../experiments/20260129_0858_homog_bs_256_1e-4_200_epochs_1e-4_5_ms_1e-4/best_model.pth",
-    model_type="plus_alibi",
-    batch_size=16,
+    experiment_name="test_NoPE",
+    benchmark="VOC12",
+    existing_checkpoint="../ronan_model/nope_vits_14_reg_ms.pth",
+    model_type="base",
+    batch_size=64,
     lr=1e-3,
     save_per=1,
 )
@@ -358,6 +358,10 @@ val_dl = DataLoader(
 
 if cfg.model_type == "base":
     model = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
+    if cfg.chk_path is not None:
+        model.load_state_dict(
+            torch.load(cfg.chk_path, map_location=DEVICE, weights_only=True)
+        )
 else:
     model = get_model(
         cfg.model_type,
