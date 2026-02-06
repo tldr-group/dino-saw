@@ -210,10 +210,11 @@ class AlibiAttention(Attention):
         m = get_alibi_slope(
             self.num_heads, slope_type=slope_type, device=self.qkv.weight.device
         )
-        if isinstance(m, torch.Tensor):
-            self.register_buffer("m", m, persistent=False)
-        else:
+        if isinstance(m, nn.Parameter):
+            delattr(self, "m")
             self.register_parameter("m", m)
+        elif isinstance(m, torch.Tensor):
+            self.register_buffer("m", m, persistent=True)
 
     def forward(self, x: torch.Tensor, attn_mask=None) -> torch.Tensor:
         B, N, C = x.shape
