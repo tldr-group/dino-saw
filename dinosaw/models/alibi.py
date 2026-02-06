@@ -206,10 +206,14 @@ class AlibiAttention(Attention):
 
     def set_alibi_slope(self, slope_type: AlibiSlopeType):
         m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
-        if isinstance(m, torch.Tensor):
+
+        if isinstance(m, nn.Parameter):
+            delattr(self, "m")
+            self.register_parameter("m", m)
+        elif isinstance(m, torch.Tensor):
             self.register_buffer("m", m, persistent=False)
         else:
-            self.register_parameter("m", m)
+            raise Exception(f"Unexpected slope type {type(m)}")
 
     def forward(self, x: torch.Tensor, attn_mask=None, attn_bias=None) -> torch.Tensor:
         B, N, C = x.shape
