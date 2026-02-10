@@ -111,6 +111,7 @@ class PretrainedViTWrapper(nn.Module):
         dynamic_img_size: bool = True,
         dynamic_img_pad: bool = False,
         device: str = "cpu",
+        pretrained: bool = True,
         **kwargs,
     ):
         super().__init__()
@@ -128,6 +129,7 @@ class PretrainedViTWrapper(nn.Module):
 
         self.dynamic_img_size = dynamic_img_size
         self.dynamic_img_pad = dynamic_img_pad
+        self.pretrained = pretrained
         self.model, self.transformation = self.create_model(model_identifier, device, **kwargs)
 
         # overwrite the stride size
@@ -181,14 +183,14 @@ class PretrainedViTWrapper(nn.Module):
         if "sam" in model_identifier or "conv" in model_identifier:
             model = create_model(
                 model_identifier,
-                pretrained=True,  # True,
+                pretrained=self.pretrained,  # True,
                 num_classes=0,
                 **kwargs,
             )
         else:
             model = create_model(
                 model_identifier,
-                pretrained=True,  # True,
+                pretrained=self.pretrained,  # True,
                 num_classes=0,
                 dynamic_img_size=self.dynamic_img_size,
                 dynamic_img_pad=self.dynamic_img_pad,
@@ -306,6 +308,15 @@ class AlibiVitWrapper(PretrainedViTWrapper):
             block_fn=block_fn_wrapper,
             **kwargs,
         )
+        self.n_cls_tokens = 0 if not add_cls else 1
+        self.n_reg_tokens = n_reg_tokens
+
+        if self.n_cls_tokens == 0:
+            self.model.cls_token = None
+
+        if self.n_reg_tokens == 0:
+            self.model.reg_token = None
+
         self.distance_matrix = distance_matrix
         # self.model.pos_embed.requires_grad = False  # freeze pos embedding
         self.slope_type = slope_type
