@@ -20,6 +20,7 @@ ModelTypes = Literal[
     "alibi_dv2",
     "alibi_dv2_h",
     "alibi_dv2_cb",
+    "alibi_dv2_cb_s_l",
     "nope",
     "dv",
     "dv_b",
@@ -58,6 +59,7 @@ model_names: dict[ModelTypes, str] = {
     "alibi_dv2": "ALiBi-Dv2",
     "alibi_dv2_h": "ALiBi(H)-Dv2",
     "alibi_dv2_cb": "ALiBi(CB)-Dv2",
+    "alibi_dv2_cb_s_l": "ALiBi(CB-S-L)-Dv2",
     "nope": "NoPE",
     "dv": "DINO",
     "dv_b": "DINO-B",
@@ -78,6 +80,7 @@ model_chkpoints: dict[ModelTypes, str] = {
     "alibi_dv2": "alibi_dv2_vits14_reg.pth",
     "alibi_dv2_h": "alibi_homog_dv2_vits14_reg.pth",
     "alibi_dv2_cb": "alibi_cb_dv2_vits14_reg.pth",
+    "alibi_dv2_cb_s_l": "alibi_scratch_cb_dv2_vits14_reg_learned_m.pth",
     "nope": "nope_dv2_vits14_reg.pth",
     "dv": "",
     "dv_b": "",
@@ -152,12 +155,14 @@ def get_model(
             device=device,
         )
     elif "alibi_dv2" in model_type:
+        slope_type = "learned" if "_l" in model_type else "constant"
+
         model = AlibiVitWrapper(
             MODEL_LIST[1],
             stride=S,
             add_flash_attn=False,
             device=device,
-            slope_type="constant",
+            slope_type=slope_type,
             normalize=True,
             wrap=True,
         )
