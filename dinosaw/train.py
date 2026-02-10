@@ -40,6 +40,7 @@ class Config:
     wrap_alibi: bool = True
     freeze_pos_emb: bool = True
     zero_pos_emb: bool = False
+    do_rel_dist_scaling: bool = False
 
     channels_to_blank: list[int] = field(default_factory=lambda: [])
     channel_dup: bool = False
@@ -69,6 +70,8 @@ def get_model(
     existing_checkpoint: str | None = None,
     vit_model_type: str = MODEL_LIST[1],
     stride: int = 14,
+    img_l: int = 224,
+    do_rel_dist_scaling: bool = False,
     chk_path: str | None = None,
 ) -> nn.Module:
     match model_type:
@@ -77,6 +80,7 @@ def get_model(
                 vit_model_type, stride=stride, add_flash_attn=False, device=device, chk_path=chk_path
             )
         case "plus_alibi":
+            rel_dist = img_l if do_rel_dist_scaling else None
             model = AlibiVitWrapper(
                 vit_model_type,
                 stride=stride,
@@ -85,6 +89,7 @@ def get_model(
                 slope_type=alibi_slope_type,
                 normalize=norm_alibi,
                 wrap=wrap_alibi,
+                rel_to_l=rel_dist,
                 chk_path=chk_path,
             )
         case "nope":
@@ -178,7 +183,7 @@ def feed_batch_get_loss(
     return loss.item()
 
 
-EXPR_PATH = f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}"
+EXPR_PATH = f"experiments/current/{datetime.now().strftime('%Y%m%d_%H%M')}"
 SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
@@ -186,7 +191,7 @@ seed_everything(SEED)
 # IMG_L = 224
 # CACHE = True
 # cfg = Config(
-#     experiment_name="alibi_cosine_loss_cb_dv2_embeds_fast",
+#     experiment_name="alibi_base_dv2_rel_dist_fast",
 #     ds_path=f"data/IN_reduced_base_{IMG_L}",
 #     img_l=IMG_L,
 #     model_type="plus_alibi",
@@ -196,10 +201,12 @@ seed_everything(SEED)
 #     freeze_pos_emb=True,
 #     n_epochs=100,
 #     batch_size=128,
-#     channels_to_blank=[47, 113, 117, 359],
+#     # channels_to_blank=[47, 113, 117, 359],
 #     channel_dup=False,
 #     loss_type="cosine",
 #     n_epochs_warmup=-1,
+#     norm_alibi=False,
+#     do_rel_dist_scaling=True,
 #     lr=1e-3,
 #     # existing_checkpoint="experiments/20260127_1554/best_model.pth",
 # )
@@ -207,7 +214,7 @@ seed_everything(SEED)
 IMG_L = 518
 CACHE = False
 cfg = Config(
-    experiment_name="alibi_cosine_loss_cb_dv2_embeds_ms_fast",
+    experiment_name="alibi_base_dv2_rel_dist_fast_ms",
     ds_path=f"data/IN_reduced_base_{IMG_L}",
     img_l=IMG_L,
     model_type="plus_alibi",
@@ -217,11 +224,13 @@ cfg = Config(
     freeze_pos_emb=True,
     n_epochs=10,
     batch_size=32,
-    channels_to_blank=[47, 113, 117, 359],
+    channels_to_blank=[],
     loss_type="cosine",
     n_epochs_warmup=-1,
     lr=1e-4,
-    existing_checkpoint="experiments/20260128_1101/best_model.pth",
+    norm_alibi=False,
+    do_rel_dist_scaling=True,
+    existing_checkpoint="experiments/current/20260209_1751/best_model.pth",
 )
 print(cfg)
 
@@ -276,6 +285,8 @@ model = get_model(
     cfg.existing_checkpoint,
     cfg.vit_model_type,
     cfg.stride,
+    cfg.img_l,
+    cfg.do_rel_dist_scaling,
     cfg.dino_chk_path,
 )
 

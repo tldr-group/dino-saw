@@ -14,7 +14,7 @@ from timm.data import create_transform, resolve_data_config
 from timm.models.vision_transformer import VisionTransformer, Attention, Block
 
 
-from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType, DistanceMatrixWrapper
+from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType, DistanceMatrixWrapper, get_max_dist_for_img_l
 
 import re
 from typing import cast, Callable, Literal
@@ -281,8 +281,10 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         normalize: bool = True,
         wrap: bool = True,
         add_cls: bool = True,
+        rel_to_l: int | None = None,
         **kwargs,
     ):
+        max_rel_dist = get_max_dist_for_img_l(rel_to_l, stride, wrap, metric)
         distance_matrix = DistanceMatrixWrapper(
             n_tokens_h=16,
             n_tokens_w=16,
@@ -291,6 +293,7 @@ class AlibiVitWrapper(PretrainedViTWrapper):
             normalize=normalize,
             wrap=wrap,
             add_cls=add_cls,
+            rel_to_dist=max_rel_dist,
         )
 
         def block_fn_wrapper(dim: int, num_heads: int, **block_kwargs: dict) -> AlibiBlock:

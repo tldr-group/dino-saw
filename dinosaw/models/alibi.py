@@ -9,6 +9,38 @@ from timm.models.vision_transformer import Block, Attention
 from typing import Type, Literal, Optional
 
 
+def get_max_dist_for_img_l(
+    img_l: int | None, patch_size: int, wrap: bool = True, metric: str = "euclidean"
+) -> float | None:
+    if img_l is None:
+        return None
+
+    n_tokens_per_side = img_l // patch_size
+    coords = torch.stack(
+        torch.meshgrid(
+            torch.arange(n_tokens_per_side, device="cpu"),
+            torch.arange(n_tokens_per_side, device="cpu"),
+            indexing="ij",
+        ),
+        dim=-1,
+    ).reshape(-1, 2)  # (N, 2)
+    diff = coords.unsqueeze(1) - coords.unsqueeze(0)
+    diff = diff.abs()
+
+    if wrap:
+        diff[..., 0] = torch.minimum(diff[..., 0], n_tokens_per_side - diff[..., 0])
+        diff[..., 1] = torch.minimum(diff[..., 1], n_tokens_per_side - diff[..., 1])
+
+    if metric == "euclidean":
+        D = torch.sqrt((diff**2).sum(-1))
+    elif metric == "manhattan":
+        D = diff.sum(-1)
+    else:
+        raise ValueError("metric must be 'euclidean' or 'manhattan'")
+
+    return float(torch.max(D).item())
+
+
 def get_distance_matrix(
     n_tokens_h: int,
     n_tokens_w: int,
@@ -19,6 +51,7 @@ def get_distance_matrix(
     add_cls: bool = True,
     device: str = "cpu",
     dtype: torch.dtype = torch.float32,
+    rel_to_dist: float | None = None,
 ) -> torch.Tensor:
     # TODO: is this (H,W) or (W,H) - and which is right?
     coords = torch.stack(
@@ -43,8 +76,15 @@ def get_distance_matrix(
     else:
         raise ValueError("metric must be 'euclidean' or 'manhattan'")
 
+    max_D = D.max().item()
+    if rel_to_dist is not None:
+        assert normalize is False, "Cannot use rel_to_dist scaling with normalization!"
+        # scale iff max_D > rel_to_dist as per paper
+        if max_D > rel_to_dist:
+            D *= rel_to_dist / max_D
+
     if normalize:
-        D /= D.max()
+        D /= max_D
     D *= -1
 
     n_extra_tokens = int(add_cls) + n_reg_tokens
@@ -90,6 +130,7 @@ class DistanceMatrixWrapper(nn.Module):
         normalize: bool = True,
         wrap: bool = True,
         add_cls: bool = True,
+        rel_to_dist: float | None = None,
     ) -> None:
         super().__init__()
 
@@ -100,6 +141,7 @@ class DistanceMatrixWrapper(nn.Module):
         self.normalize = normalize
         self.wrap = wrap
         self.add_cls = add_cls
+        self.rel_to_dist = rel_to_dist
 
         # self.matrix: torch.Tensor | None = None
 
@@ -111,6 +153,7 @@ class DistanceMatrixWrapper(nn.Module):
             normalize=normalize,
             wrap=wrap,
             add_cls=add_cls,
+            rel_to_dist=rel_to_dist,
             force_update=True,
         )
 
@@ -123,6 +166,7 @@ class DistanceMatrixWrapper(nn.Module):
         normalize: bool = True,
         wrap: bool = True,
         add_cls: bool = True,
+        rel_to_dist: float | None = None,
         force_update: bool = False,
     ) -> None:
         is_stale = False
@@ -134,6 +178,7 @@ class DistanceMatrixWrapper(nn.Module):
             ("normalize", normalize),
             ("wrap", wrap),
             ("add_cls", add_cls),
+            ("rel_to_dist", rel_to_dist),
         ):
             if getattr(self, attr) != val:
                 is_stale = True
@@ -153,10 +198,11 @@ class DistanceMatrixWrapper(nn.Module):
             n_tokens_h,
             n_tokens_w,
             n_reg_tokens,
-            wrap=wrap,
-            metric=metric,
-            normalize=normalize,
-            add_cls=add_cls,
+            wrap=self.wrap,
+            metric=self.metric,
+            normalize=self.normalize,
+            add_cls=self.add_cls,
+            rel_to_dist=self.rel_to_dist,
             device=device,
             dtype=dtype,
         )
@@ -164,10 +210,10 @@ class DistanceMatrixWrapper(nn.Module):
         self.n_tokens_h = n_tokens_h
         self.n_tokens_w = n_tokens_w
         self.n_reg_tokens = n_reg_tokens
-        self.metric = metric
-        self.normalize = normalize
-        self.wrap = wrap
-        self.add_cls = add_cls
+        # self.metric = metric
+        # self.normalize = normalize
+        # self.wrap = wrap
+        # self.add_cls = add_cls
         self.register_buffer("matrix", distance_matrix, persistent=False)
 
 
