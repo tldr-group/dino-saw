@@ -152,22 +152,18 @@ class DistanceMatrixWrapper(nn.Module):
         distance_matrix = get_distance_matrix(
             n_tokens_h,
             n_tokens_w,
-            n_reg_tokens,
-            wrap=wrap,
-            metric=metric,
-            normalize=normalize,
-            add_cls=add_cls,
+            self.n_reg_tokens,
+            wrap=self.wrap,
+            metric=self.metric,
+            normalize=self.normalize,
+            add_cls=self.add_cls,
             device=device,
             dtype=dtype,
         )
 
         self.n_tokens_h = n_tokens_h
         self.n_tokens_w = n_tokens_w
-        self.n_reg_tokens = n_reg_tokens
-        self.metric = metric
-        self.normalize = normalize
-        self.wrap = wrap
-        self.add_cls = add_cls
+
         self.register_buffer("matrix", distance_matrix, persistent=False)
 
 
