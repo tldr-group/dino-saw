@@ -34,6 +34,10 @@ class Config:
     dino_chk_path: str | None = None
     vit_model_type: str = MODEL_LIST[1]
     stride: int = 14
+    pretrained: bool = True
+
+    add_cls_token: bool = True
+    n_reg_tokens: int = 4
 
     alibi_slope_type: AlibiSlopeType = "constant"
     norm_alibi: bool = True
@@ -70,11 +74,19 @@ def get_model(
     vit_model_type: str = MODEL_LIST[1],
     stride: int = 14,
     chk_path: str | None = None,
+    pretrained: bool = True,
+    add_cls_token: bool = True,
+    n_reg_tokens: int = 4,
 ) -> nn.Module:
     match model_type:
         case "base":
             model = PretrainedViTWrapper(
-                vit_model_type, stride=stride, add_flash_attn=False, device=device, chk_path=chk_path
+                vit_model_type,
+                stride=stride,
+                add_flash_attn=False,
+                device=device,
+                chk_path=chk_path,
+                pretrained=pretrained,
             )
         case "plus_alibi":
             model = AlibiVitWrapper(
@@ -86,10 +98,18 @@ def get_model(
                 normalize=norm_alibi,
                 wrap=wrap_alibi,
                 chk_path=chk_path,
+                pretrained=pretrained,
+                n_reg_tokens=n_reg_tokens,
+                add_cls=add_cls_token,
             )
         case "nope":
             model = PretrainedViTWrapper(
-                vit_model_type, stride=stride, add_flash_attn=False, device=device, chk_path=chk_path
+                vit_model_type,
+                stride=stride,
+                add_flash_attn=False,
+                device=device,
+                chk_path=chk_path,
+                pretrained=pretrained,
             )
         case _:
             raise Exception(f"Unsupported model type {model_type}")
@@ -178,7 +198,7 @@ def feed_batch_get_loss(
     return loss.item()
 
 
-EXPR_PATH = f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}"
+EXPR_PATH = f"experiments/current/{datetime.now().strftime('%Y%m%d_%H%M')}"
 SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
@@ -186,7 +206,7 @@ seed_everything(SEED)
 # IMG_L = 224
 # CACHE = True
 # cfg = Config(
-#     experiment_name="alibi_cosine_loss_cb_dv2_embeds_fast",
+#     experiment_name="alibi_cb_dv2_vits14_nocls_noreg_learned_m",
 #     ds_path=f"data/IN_reduced_base_{IMG_L}",
 #     img_l=IMG_L,
 #     model_type="plus_alibi",
@@ -194,20 +214,26 @@ seed_everything(SEED)
 #     stride=14,
 #     zero_pos_emb=True,
 #     freeze_pos_emb=True,
+#     alibi_slope_type="learned",
+#     norm_alibi=True,
+#     wrap_alibi=True,
 #     n_epochs=100,
-#     batch_size=128,
+#     batch_size=32,
 #     channels_to_blank=[47, 113, 117, 359],
 #     channel_dup=False,
 #     loss_type="cosine",
 #     n_epochs_warmup=-1,
 #     lr=1e-3,
+#     pretrained=True,
+#     add_cls_token=False,
+#     n_reg_tokens=0,
 #     # existing_checkpoint="experiments/20260127_1554/best_model.pth",
 # )
 # Multiscale training config
 IMG_L = 518
 CACHE = False
 cfg = Config(
-    experiment_name="alibi_cosine_loss_cb_dv2_embeds_ms_fast",
+    experiment_name="alibi_cb_dv2_vits14_nocls_noreg_learned_m",
     ds_path=f"data/IN_reduced_base_{IMG_L}",
     img_l=IMG_L,
     model_type="plus_alibi",
@@ -215,13 +241,18 @@ cfg = Config(
     stride=14,
     zero_pos_emb=True,
     freeze_pos_emb=True,
-    n_epochs=10,
+    alibi_slope_type="learned",
+    norm_alibi=True,
+    wrap_alibi=True,
+    n_epochs=20,
     batch_size=32,
     channels_to_blank=[47, 113, 117, 359],
     loss_type="cosine",
     n_epochs_warmup=-1,
     lr=1e-4,
-    existing_checkpoint="experiments/20260128_1101/best_model.pth",
+    add_cls_token=False,
+    n_reg_tokens=0,
+    existing_checkpoint="experiments/current/20260211_0803/best_model.pth",
 )
 print(cfg)
 
@@ -277,6 +308,9 @@ model = get_model(
     cfg.vit_model_type,
     cfg.stride,
     cfg.dino_chk_path,
+    cfg.pretrained,
+    cfg.add_cls_token,
+    cfg.n_reg_tokens,
 )
 
 optimizer = get_optim(cfg.optim, model, cfg.lr)
