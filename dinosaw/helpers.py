@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import numpy as np
 from PIL import Image
 
@@ -21,6 +22,7 @@ ModelTypes = Literal[
     "alibi_dv2_h",
     "alibi_dv2_cb",
     "alibi_dv2_cb_s_l",
+    "alibi_dv2_cb_nr_l",
     "nope",
     "dv",
     "dv_b",
@@ -60,6 +62,7 @@ model_names: dict[ModelTypes, str] = {
     "alibi_dv2_h": "ALiBi(H)-Dv2",
     "alibi_dv2_cb": "ALiBi(CB)-Dv2",
     "alibi_dv2_cb_s_l": "ALiBi(CB-S-L)-Dv2",
+    "alibi_dv2_cb_nr_l": "ALiBi(CB-NR-L)-Dv2",
     "nope": "NoPE",
     "dv": "DINO",
     "dv_b": "DINO-B",
@@ -81,6 +84,7 @@ model_chkpoints: dict[ModelTypes, str] = {
     "alibi_dv2_h": "alibi_homog_dv2_vits14_reg.pth",
     "alibi_dv2_cb": "alibi_cb_dv2_vits14_reg.pth",
     "alibi_dv2_cb_s_l": "alibi_scratch_cb_dv2_vits14_reg_learned_m.pth",
+    "alibi_dv2_cb_nr_l": "alibi_cb_dv2_vits14_noreg.pth",
     "nope": "nope_dv2_vits14_reg.pth",
     "dv": "",
     "dv_b": "",
@@ -156,6 +160,8 @@ def get_model(
         )
     elif "alibi_dv2" in model_type:
         slope_type = "learned" if "_l" in model_type else "constant"
+        add_cls = False if "nr" in model_type else True
+        n_reg_tokens = 0 if "nr" in model_type else 4
 
         model = AlibiVitWrapper(
             MODEL_LIST[1],
@@ -165,10 +171,14 @@ def get_model(
             slope_type=slope_type,
             normalize=True,
             wrap=True,
+            add_cls=add_cls,
+            n_reg_tokens=n_reg_tokens,
         )
         model.load_state_dict(weights)
     else:
         raise Exception("Invalid model type")
+
+    model.model.norm = nn.Identity()  # Don't apply the final norm, to keep the raw features
 
     assert model is not None
     model = model.eval()
