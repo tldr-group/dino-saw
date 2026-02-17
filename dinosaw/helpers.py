@@ -117,7 +117,12 @@ model_name_to_timm: dict[TimmModels, str] = {
 
 
 def get_model(
-    model_type: ModelTypes, model_dir: str, device: str, to_half: bool = False, conf_path: str | None = None
+    model_type: ModelTypes,
+    model_dir: str,
+    device: str,
+    to_half: bool = False,
+    conf_path: str | None = None,
+    remove_final_norm: bool = False,
 ) -> PretrainedViTWrapper:
     S = 14
     model: PretrainedViTWrapper | None = None
@@ -178,7 +183,8 @@ def get_model(
     else:
         raise Exception("Invalid model type")
 
-    model.model.norm = nn.Identity()  # Don't apply the final norm, to keep the raw features
+    if remove_final_norm:
+        model.model.norm = nn.Identity()
 
     assert model is not None
     model = model.eval()
