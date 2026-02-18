@@ -23,6 +23,7 @@ ModelTypes = Literal[
     "alibi_dv2_cb",
     "alibi_dv2_cb_s_l",
     "alibi_dv2_cb_nr_l",
+    "alibi_dv2_cb_l_j",
     "nope",
     "dv",
     "dv_b",
@@ -63,6 +64,7 @@ model_names: dict[ModelTypes, str] = {
     "alibi_dv2_cb": "ALiBi(CB)-Dv2",
     "alibi_dv2_cb_s_l": "ALiBi(CB-S-L)-Dv2",
     "alibi_dv2_cb_nr_l": "ALiBi(CB-NR-L)-Dv2",
+    "alibi_dv2_cb_l_j": "ALiBi(CB-L-J)-Dv2",
     "nope": "NoPE",
     "dv": "DINO",
     "dv_b": "DINO-B",
@@ -85,6 +87,7 @@ model_chkpoints: dict[ModelTypes, str] = {
     "alibi_dv2_cb": "alibi_cb_dv2_vits14_reg.pth",
     "alibi_dv2_cb_s_l": "alibi_scratch_cb_dv2_vits14_reg_learned_m.pth",
     "alibi_dv2_cb_nr_l": "alibi_cb_dv2_vits14_noreg.pth",
+    "alibi_dv2_cb_l_j": "alibi_cb_dv2_vits14_j_ms.pth",
     "nope": "nope_dv2_vits14_reg.pth",
     "dv": "",
     "dv_b": "",
@@ -167,6 +170,7 @@ def get_model(
         slope_type = "learned" if "_l" in model_type else "constant"
         add_cls = False if "nr" in model_type else True
         n_reg_tokens = 0 if "nr" in model_type else 4
+        jitter_mag = 0.025 if "_j" in model_type else 0.0
 
         model = AlibiVitWrapper(
             MODEL_LIST[1],
@@ -178,6 +182,7 @@ def get_model(
             wrap=True,
             add_cls=add_cls,
             n_reg_tokens=n_reg_tokens,
+            jitter_mag=jitter_mag,
         )
         model.load_state_dict(weights)
     else:
