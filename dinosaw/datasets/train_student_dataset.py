@@ -2,6 +2,8 @@ import torch
 from torchvision.transforms import Compose  # type: ignore
 from torch.utils.data import Dataset
 
+from random import randint
+
 from glob import glob
 
 from dinosaw.utils import load_image, closest_crop
@@ -24,6 +26,7 @@ class HomogenizedEmbeddingDataset(Dataset):
         squeeze_batch_dim_from_embed: bool = True,
         channels_to_blank: list[int] = [],
         channel_dup: bool = False,
+        do_random_roll: bool = False,
     ):
         self.img_paths = sorted(glob(f"{base_path}/{split}/imgs/*.png"))
         self.target_paths = sorted(glob(f"{base_path}/{split}/embeddings/*.pt"))
@@ -35,6 +38,7 @@ class HomogenizedEmbeddingDataset(Dataset):
         self.squeeze_batch_dim_from_image = squeeze_batch_dim_from_image
         self.channels_to_blank = channels_to_blank
         self.channel_dup = channel_dup
+        self.do_random_roll = do_random_roll
 
         self.store_in_memory = store_in_memory
 
@@ -72,7 +76,10 @@ class HomogenizedEmbeddingDataset(Dataset):
         return embed
 
     def load_embed(
-        self, path: str, squeeze_batch_dim_from_embed: bool = True, norm_feats: bool = False
+        self,
+        path: str,
+        squeeze_batch_dim_from_embed: bool = True,
+        norm_feats: bool = False,
     ) -> torch.Tensor:
         embed = torch.load(path, weights_only=True)
         embed.requires_grad = False
@@ -80,11 +87,15 @@ class HomogenizedEmbeddingDataset(Dataset):
             embed = torch.nn.functional.normalize(embed, p=2, dim=1)
         if squeeze_batch_dim_from_embed:
             embed = embed.squeeze(0)
-
         embed = self.operate_on_channels(embed, self.channels_to_blank, self.channel_dup)
         return embed
 
-    def load_image(self, path: str, transform: Compose, squeeze_batch_dim_from_image: bool = True) -> torch.Tensor:
+    def load_image(
+        self,
+        path: str,
+        transform: Compose,
+        squeeze_batch_dim_from_image: bool = True,
+    ) -> torch.Tensor:
         img, _ = load_image(path, transform, to_gpu=False, to_half=False, device_str="cpu")
         if squeeze_batch_dim_from_image:
             img = img.squeeze(0)
@@ -100,6 +111,14 @@ class HomogenizedEmbeddingDataset(Dataset):
         else:
             img = self.load_image(self.img_paths[index], self.transform, self.squeeze_batch_dim_from_image)
             target = self.load_embed(self.target_paths[index], self.squeeze_batch_dim_from_embed, self.norm_feats)
+
+        if self.do_random_roll:
+            w, h = img.shape[2], img.shape[1]
+            random_roll_tokens = (randint(0, w // 14), randint(0, h // 14))
+            random_roll_px = (random_roll_tokens[0] * 14, random_roll_tokens[1] * 14)
+            img = torch.roll(img, shifts=random_roll_px, dims=(1, 2))
+            target = torch.roll(target, shifts=random_roll_tokens, dims=(1, 2))
+
         return img.to(self.dtype), target.to(self.dtype)
 
 
