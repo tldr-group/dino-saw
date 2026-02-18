@@ -180,6 +180,7 @@ class AlibiAttention(Attention):
         proj_drop: float = 0.0,
         norm_layer: Type[nn.Module] = nn.LayerNorm,
         slope_type: AlibiSlopeType = "constant",
+        jitter_mag: float = 0.0,
     ) -> None:
         super().__init__(
             dim=dim,
@@ -198,13 +199,16 @@ class AlibiAttention(Attention):
         self.n_tokens_h = 16
         self.n_tokens_w = 16
 
+        self.jitter_mag = jitter_mag
+        self.set_alibi_slope(slope_type)
+
         # self.is_enabled = True
 
     def set_alibi_slope(self, slope_type: AlibiSlopeType):
         m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
 
         if isinstance(m, nn.Parameter):
-            delattr(self, "m")
+            # delattr(self, "m")
             self.register_parameter("m", m)
         elif isinstance(m, torch.Tensor):
             self.register_buffer("m", m, persistent=False)
@@ -226,6 +230,10 @@ class AlibiAttention(Attention):
         # )
         bias = self.m * self.distance_matrix.matrix
         bias = bias.unsqueeze(0)
+
+        if self.jitter_mag > 0.0:
+            jitter = torch.randn_like(bias) * self.jitter_mag
+            bias += jitter
 
         if self.fused_attn:
             x = F.scaled_dot_product_attention(
@@ -251,6 +259,8 @@ class AlibiBlock(Block):
     def __init__(
         self,
         distance_matrix: DistanceMatrixWrapper,
+        slope_type: AlibiSlopeType,
+        jitter_mag: float,
         dim: int,
         num_heads: int,
         mlp_ratio: float = 4.0,
@@ -292,6 +302,8 @@ class AlibiBlock(Block):
             attn_drop=attn_drop,
             proj_drop=proj_drop,
             norm_layer=norm_layer,
+            slope_type=slope_type,
+            jitter_mag=jitter_mag,
         )
 
 

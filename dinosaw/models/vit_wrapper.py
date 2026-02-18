@@ -283,6 +283,7 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         normalize: bool = True,
         wrap: bool = True,
         add_cls: bool = True,
+        jitter_mag: float = 0.0,
         **kwargs,
     ):
         distance_matrix = DistanceMatrixWrapper(
@@ -296,7 +297,14 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         )
 
         def block_fn_wrapper(dim: int, num_heads: int, **block_kwargs: dict) -> AlibiBlock:
-            return AlibiBlock(distance_matrix=distance_matrix, dim=dim, num_heads=num_heads, **block_kwargs)
+            return AlibiBlock(
+                distance_matrix=distance_matrix,
+                slope_type=slope_type,
+                jitter_mag=jitter_mag,
+                dim=dim,
+                num_heads=num_heads,
+                **block_kwargs,
+            )
 
         super().__init__(
             model_identifier=model_identifier,
@@ -321,9 +329,9 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         # self.model.pos_embed.requires_grad = False  # freeze pos embedding
         self.slope_type = slope_type
 
-        for blk in self.model.blocks:
-            blk: AlibiBlock
-            blk.attn.set_alibi_slope(slope_type=self.slope_type)
+        # for blk in self.model.blocks:
+        #     blk: AlibiBlock
+        #     blk.attn.set_alibi_slope(slope_type=self.slope_type)
 
     def set_alibi_enabled(self, enabled: bool):
         return

@@ -44,6 +44,7 @@ class Config:
     wrap_alibi: bool = True
     freeze_pos_emb: bool = True
     zero_pos_emb: bool = False
+    jitter_mag: float = 0.0
 
     channels_to_blank: list[int] = field(default_factory=lambda: [])
     channel_dup: bool = False
@@ -78,6 +79,7 @@ def get_model(
     pretrained: bool = True,
     add_cls_token: bool = True,
     n_reg_tokens: int = 4,
+    jitter_mag: float = 0.0,
 ) -> nn.Module:
     match model_type:
         case "base":
@@ -102,6 +104,7 @@ def get_model(
                 pretrained=pretrained,
                 n_reg_tokens=n_reg_tokens,
                 add_cls=add_cls_token,
+                jitter_mag=jitter_mag,
             )
         case "nope":
             model = PretrainedViTWrapper(
@@ -204,38 +207,10 @@ SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
-IMG_L = 224
-CACHE = True
-cfg = Config(
-    experiment_name="alibi_cb_dv2_vits14_nocls_noreg_learned_m",
-    ds_path=f"data/IN_reduced_base_{IMG_L}",
-    img_l=IMG_L,
-    model_type="plus_alibi",
-    vit_model_type=MODEL_LIST[1],
-    stride=14,
-    zero_pos_emb=True,
-    freeze_pos_emb=True,
-    alibi_slope_type="learned",
-    norm_alibi=True,
-    wrap_alibi=True,
-    n_epochs=100,
-    batch_size=128,
-    channels_to_blank=[47, 113, 117, 359],
-    channel_dup=False,
-    do_random_roll=True,
-    loss_type="cosine",
-    n_epochs_warmup=-1,
-    lr=1e-3,
-    pretrained=True,
-    add_cls_token=True,
-    n_reg_tokens=4,
-    # existing_checkpoint="experiments/20260127_1554/best_model.pth",
-)
-# Multiscale training config
-# IMG_L = 518
-# CACHE = False
+# IMG_L = 224
+# CACHE = True
 # cfg = Config(
-#     experiment_name="alibi_cb_dv2_vits14_nocls_noreg_learned_m",
+#     experiment_name="alibi_cb_dv2_vits14_reg_learned_m_roll_j",
 #     ds_path=f"data/IN_reduced_base_{IMG_L}",
 #     img_l=IMG_L,
 #     model_type="plus_alibi",
@@ -246,16 +221,47 @@ cfg = Config(
 #     alibi_slope_type="learned",
 #     norm_alibi=True,
 #     wrap_alibi=True,
-#     n_epochs=20,
-#     batch_size=32,
+#     jitter_mag=0.025,
+#     n_epochs=100,
+#     batch_size=128,
 #     channels_to_blank=[47, 113, 117, 359],
+#     channel_dup=False,
+#     do_random_roll=True,
 #     loss_type="cosine",
 #     n_epochs_warmup=-1,
-#     lr=1e-4,
-#     add_cls_token=False,
-#     n_reg_tokens=0,
-#     existing_checkpoint="experiments/current/20260211_0803/best_model.pth",
+#     lr=1e-3,
+#     pretrained=True,
+#     add_cls_token=True,
+#     n_reg_tokens=4,
+#     # existing_checkpoint="experiments/20260127_1554/best_model.pth",
 # )
+# Multiscale training config
+IMG_L = 518
+CACHE = False
+cfg = Config(
+    experiment_name="alibi_cb_dv2_vits14_reg_learned_m_roll_j",
+    ds_path=f"data/IN_reduced_base_{IMG_L}",
+    img_l=IMG_L,
+    model_type="plus_alibi",
+    vit_model_type=MODEL_LIST[1],
+    stride=14,
+    zero_pos_emb=True,
+    freeze_pos_emb=True,
+    alibi_slope_type="learned",
+    norm_alibi=True,
+    wrap_alibi=True,
+    jitter_mag=0.025,
+    n_epochs=20,
+    batch_size=32,
+    channels_to_blank=[47, 113, 117, 359],
+    do_random_roll=True,
+    loss_type="cosine",
+    n_epochs_warmup=-1,
+    lr=1e-4,
+    add_cls_token=True,
+    n_reg_tokens=4,
+    existing_checkpoint="experiments/current/20260217_1926/best_model.pth",
+)
 print(cfg)
 
 try:
@@ -315,6 +321,7 @@ model = get_model(
     cfg.pretrained,
     cfg.add_cls_token,
     cfg.n_reg_tokens,
+    cfg.jitter_mag,
 )
 
 optimizer = get_optim(cfg.optim, model, cfg.lr)
