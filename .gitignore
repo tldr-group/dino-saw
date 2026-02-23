@@ -218,6 +218,10 @@ archive/
 
 tmp/
 Dataset_/
+Datasets/
 data/
 experiments/*
 notebooks/*
+AG_plots/
+experiments
+notebooks/

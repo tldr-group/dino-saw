@@ -75,6 +75,7 @@ def get_model(
     chk_path: str | None = None,
 ) -> nn.Module:
     print(f"{existing_checkpoint=}")
+    print(vit_model_type)
     match model_type:
         case "base":
             model = PretrainedViTWrapper(
@@ -94,9 +95,45 @@ def get_model(
                 normalize=norm_alibi,
                 wrap=wrap_alibi,
                 checkpoint_path=chk_path,
+                n_reg_tokens=4,
+                add_cls=True,
             )
         case _:
             raise Exception(f"Unsupported model type {model_type}")
+
+    def remove_prefix_from_pos_embed(model, prefix_to_remove=1):
+        import math
+
+        # prefix_to_remove: number of leading tokens to drop (e.g., 1 for CLS)
+        pe = model.pos_embed.detach()  # (1, N, D)
+        n_tokens = pe.shape[1]
+        if prefix_to_remove >= n_tokens:
+            raise ValueError("prefix_to_remove too large")
+
+        new_pe = pe[:, prefix_to_remove:, :].contiguous()
+        model.pos_embed = nn.Parameter(new_pe)
+        # update bookkeeping
+        model.num_prefix_tokens = max(
+            0, getattr(model, "num_prefix_tokens", 1) - prefix_to_remove
+        )
+        model.no_embed_class = model.num_prefix_tokens == 0
+        # recompute and set patch_embed.grid_size to match new pos_embed
+        print(new_pe.shape)
+        tokens_no_prefix = new_pe.shape[1]
+        r = math.isqrt(tokens_no_prefix)
+        if r * r != tokens_no_prefix:
+            raise RuntimeError(
+                "After removing prefix, remaining tokens are not square -> can't set grid_size automatically."
+            )
+        model.patch_embed.grid_size = (r, r)
+
+        print(
+            f"Removed {prefix_to_remove} prefix tokens. New pos_embed shape: {tuple(model.pos_embed.shape)}"
+        )
+        return model
+
+    # usage: if you removed CLS, call with prefix_to_remove=1
+    # remove_prefix_from_pos_embed(model.model, prefix_to_remove=1)
 
     if freeze_abs_pos_emb or zero_pos_emb:
         # assert model.model.pos_embed is not None
@@ -123,6 +160,11 @@ def get_model(
         model.load_state_dict(
             torch.load(existing_checkpoint, map_location=device, weights_only=True)
         )
+
+    model.model.blocks[8].attn.activate_matrix = False
+    model.model.blocks[9].attn.activate_matrix = False
+    model.model.blocks[10].attn.activate_matrix = False
+    model.model.blocks[11].attn.activate_matrix = False
 
     return model
 
@@ -187,34 +229,41 @@ def feed_batch_get_loss(
     return loss.detach()
 
 
-IMG_L = 224
-EXPR_PATH = f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}"
+IMG_L = 518
 SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
 # cfg = Config()
 cfg = Config(
-    experiment_name="test",
+    experiment_name="test_learned_slope_with_jitter_last_4_layers_no_alibi_100_224_5e-4_10_518_bs8_5e-5",
+    # ds_path=f"/home/pawlo/Arbeit/positional_bias/dino-saw/Datasets/IN_reduced_224/IN_reduced_224",
     ds_path=f"/home/pawlo/Arbeit/positional_bias/dino-saw/dinosaw/datasets/data/IN_reduced_dv2_{IMG_L}",
     img_l=IMG_L,
     model_type="plus_alibi",
     vit_model_type=MODEL_LIST[1],
     stride=14,
+    wrap_alibi=True,
+    norm_alibi=True,
+    alibi_slope_type="learned",
     # dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
     zero_pos_emb=True,
     freeze_pos_emb=True,
-    n_epochs=100,
-    batch_size=128,
+    n_epochs=10,
+    batch_size=8,
     channels_to_blank=[47, 113, 117, 359],
     loss_type="cosine",
     n_epochs_warmup=-1,
     init_pos_enc_dropout=1.0,
-    lr=1e-3,
-    # existing_checkpoint="experiments/100_224/best_model.pth",
+    lr=5e-5,
+    existing_checkpoint="experiments/20260221_1545_test_learned_slope_with_jitter_last_4_layers_no_alibi_100_224_5e-4/best_model.pth",
+    save_per=1,
 )
 print(cfg)
 
+EXPR_PATH = (
+    f"experiments/{datetime.now().strftime('%Y%m%d_%H%M')}_{cfg.experiment_name}"
+)
 try:
     rmtree(EXPR_PATH)
 except FileNotFoundError:
@@ -309,8 +358,8 @@ for epoch in range(cfg.n_epochs):
             device=DEVICE,
         )
         train_loss += loss
-        # if i % 50 == 0:
-        #     print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
+        if i % 50 == 0:
+            print(f"Train batch {i}/{N_batches} | Loss: {(train_loss / i):.4f}")
 
     train_loss /= len(train_dl)
     val_loss = 0.0

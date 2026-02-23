@@ -73,6 +73,7 @@ def get_head(benchmark: Benchmarks) -> nn.Sequential | DPTHead:
         case "VOC12":
             return nn.Sequential(
                 nn.SyncBatchNorm(num_features=384),
+                # nn.LayerNorm([384, 37, 37]),
                 nn.Dropout2d(p=0.1),
                 nn.Conv2d(in_channels=384, out_channels=21, kernel_size=1),
             )
@@ -201,6 +202,11 @@ def get_model(
             torch.load(existing_checkpoint, map_location=device, weights_only=True)
         )
 
+    model.model.blocks[11].attn.activate_matrix = False
+    model.model.blocks[10].attn.activate_matrix = False
+    model.model.blocks[9].attn.activate_matrix = False
+    model.model.blocks[8].attn.activate_matrix = False
+
     return model
 
 
@@ -279,10 +285,13 @@ seed_everything(SEED)
 
 
 cfg = Config(
-    experiment_name="test_NoPE",
+    experiment_name="VOC_20260221_2258_test_learned_slope_with_jitter_last_4_layers_no_alibi_100_224_5e-4_10_518_bs8_5e-5",
     benchmark="VOC12",
-    existing_checkpoint="../ronan_model/nope_vits_14_reg_ms.pth",
-    model_type="base",
+    existing_checkpoint="../experiments/20260221_2258_test_learned_slope_with_jitter_last_4_layers_no_alibi_100_224_5e-4_10_518_bs8_5e-5/best_model.pth",
+    # existing_checkpoint="../ronan_model/nope_vits_14_reg_ms.pth",
+    model_type="plus_alibi",
+    wrap_alibi=True,
+    alibi_slope_type="learned",
     batch_size=64,
     lr=1e-3,
     save_per=1,
@@ -358,9 +367,9 @@ val_dl = DataLoader(
 
 if cfg.model_type == "base":
     model = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
-    if cfg.chk_path is not None:
+    if cfg.existing_checkpoint is not None:
         model.load_state_dict(
-            torch.load(cfg.chk_path, map_location=DEVICE, weights_only=True)
+            torch.load(cfg.existing_checkpoint, map_location=DEVICE, weights_only=True)
         )
 else:
     model = get_model(

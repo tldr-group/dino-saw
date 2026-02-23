@@ -71,7 +71,7 @@ def visualise(
     pred_homog_feats: torch.Tensor | None,
     out_path: str | None = None,
 ) -> Image.Image:
-    n_rows = 4 if isinstance(pred_homog_feats, torch.Tensor) else 3
+    n_rows = 3 if isinstance(pred_homog_feats, torch.Tensor) else 3
     img_unnormed = unnorm(img)
     img_rgb = (img_unnormed - img_unnormed.min()) / (
         img_unnormed.max() - img_unnormed.min()

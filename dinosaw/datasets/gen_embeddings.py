@@ -7,18 +7,24 @@ from PIL import Image
 
 from dinosaw.datasets.translate_featurise import translate_featurise
 from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
-from dinosaw.utils import closest_crop, convert_image, closest_resize, to_img, unnormalize
+from dinosaw.utils import (
+    closest_crop,
+    convert_image,
+    closest_resize,
+    to_img,
+    unnormalize,
+)
 
 from typing import cast
 from time import time
 
 FOLDER_NAME = "data"
-DEVICE = "cuda:1"
-NAME = "IN_reduced_dv3"
-IMG_L = 224
+DEVICE = "cuda:0"
+NAME = "IN_reduced_dv2_dropped"
+IMG_L = 518
 N_VAL = 2600
 HOMOGENISE = False
-STRIDE = 16
+STRIDE = 14
 
 np.random.seed(10001)
 torch.random.manual_seed(10001)
@@ -34,11 +40,11 @@ for split in ("train", "val"):
         makedirs(f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/{which}/", exist_ok=True)
 
 dv2 = PretrainedViTWrapper(
-    MODEL_LIST[-1],
+    MODEL_LIST[1],
     stride=STRIDE,
     add_flash_attn=False,
     device=DEVICE,
-    chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
+    # chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
 )
 dv2 = dv2.eval()
 
@@ -63,12 +69,16 @@ with torch.no_grad():
         else:
             with torch.no_grad():
                 translated_feats = dv2.forward_features(img_tensor, make_2D=True)
+                translated_feats[:, [47, 113, 117, 359], :, :]
                 translated_feats = translated_feats.to("cpu")
 
         split = "val" if i < N_VAL else "train"
 
         img_to_save.save(f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/imgs/{i:05d}.png")
-        torch.save(translated_feats, f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/embeddings/{i:05d}.pt")
+        torch.save(
+            translated_feats,
+            f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/embeddings/{i:05d}.pt",
+        )
 
         if i % 50 == 0:
             end_t = time()

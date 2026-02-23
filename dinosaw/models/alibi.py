@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 from timm.layers.mlp import Mlp
 from timm.models.vision_transformer import Block, Attention
@@ -43,11 +44,20 @@ def get_distance_matrix(
     else:
         raise ValueError("metric must be 'euclidean' or 'manhattan'")
 
+    # D = torch.rand_like(D)
+
+    # D = torch.log10(D + 10) - 1
+
+    # big_d = D.max()
+    # D[D > 5] = big_d
+
     if normalize:
-        D /= D.max()
+        D = D / D.max()
     D *= -1
+    # D = torch.ones_like(D)
 
     n_extra_tokens = int(add_cls) + n_reg_tokens
+    # n_extra_tokens = 0
     # timm prepends [CLS] + [REG]
     D = F.pad(D, (n_extra_tokens, 0, n_extra_tokens, 0), mode="constant")
 
@@ -70,7 +80,7 @@ def get_alibi_slope(
         case "learned":
             m = torch.rand(num_heads, device=device)
         case "constant":
-            m = torch.ones(num_heads, device=device)
+            m = torch.ones(num_heads, device=device) * 8
         case _:
             raise ValueError(f"Unknown slope type {type}")
 
@@ -204,6 +214,10 @@ class AlibiAttention(Attention):
         self.n_tokens_h = 16
         self.n_tokens_w = 16
 
+        self.activate_matrix = True
+
+        self.jitter_mag = 0.025
+
         # self.is_enabled = True
 
     def set_alibi_slope(self, slope_type: AlibiSlopeType):
@@ -214,7 +228,7 @@ class AlibiAttention(Attention):
             delattr(self, "m")
             self.register_parameter("m", m)
         elif isinstance(m, torch.Tensor):
-            self.register_buffer("m", m, persistent=True)
+            self.register_buffer("m", m, persistent=False)
 
     def forward(self, x: torch.Tensor, attn_mask=None) -> torch.Tensor:
         B, N, C = x.shape
@@ -236,6 +250,10 @@ class AlibiAttention(Attention):
         bias = self.m * self.distance_matrix.matrix
         bias = bias.unsqueeze(0)
 
+        if self.jitter_mag > 0.0:
+            jitter = torch.rand_like(bias) * self.jitter_mag
+            bias += jitter
+
         if self.fused_attn:
             x = F.scaled_dot_product_attention(
                 q,
@@ -248,7 +266,8 @@ class AlibiAttention(Attention):
             q = q * self.scale
             attn = q @ k.transpose(-2, -1)
 
-            attn = attn + bias
+            if self.activate_matrix:
+                attn = attn + bias
 
             attn = attn.softmax(dim=-1)
             attn = self.attn_drop(attn)
