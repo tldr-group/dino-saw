@@ -11,7 +11,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 
 from dinosaw.datasets.vis_dataset import visualise
 from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
-from dinosaw.datasets.joint_embed_dataset import JointEmbeddingDataset
+from dinosaw.datasets.joint_embed_dataset import JointEmbeddingDataset, OTFEmbeddingDataset
 from dinosaw.models.alibi import AlibiSlopeType
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
 from dinosaw.utils import seed_everything, closest_resize, closest_resize_crop
@@ -22,7 +22,7 @@ from typing import Literal
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
 ModelType = Literal["base", "plus_alibi", "nope"]
-DatasetType = Literal["joint", "direct"]
+DatasetType = Literal["joint", "direct", "otf_coco"]
 
 
 @dataclass
@@ -203,6 +203,39 @@ def get_ds(cfg: Config, device: str) -> tuple[Dataset, Dataset]:
             do_random_roll=cfg.do_random_roll,
         )
         return (train_ds, val_ds)
+    elif cfg.ds_type == "otf_coco":
+        tr = closest_resize_crop(cfg.img_l, 14)
+        embed_model: PretrainedViTWrapper = get_model("base", "constant", False, False, -1, False, False, device)
+        embed_model.eval()
+        embed_model = embed_model.to(device)
+        embed_model = torch.compile(embed_model)
+        train_ds = OTFEmbeddingDataset(
+            embed_model,
+            f"{cfg.ds_path}/train2017",
+            "train",
+            transform=tr,
+            dtype=torch.float32,
+            device=device,
+            fname_file_path=f"{cfg.ds_path}/train2017.txt",
+            norm_feats=False,
+            channels_to_blank=cfg.channels_to_blank,
+            channel_dup=cfg.channel_dup,
+            _do_random_roll=cfg.do_random_roll,
+        )
+        val_ds = OTFEmbeddingDataset(
+            embed_model,
+            f"{cfg.ds_path}/val2017",
+            "val",
+            transform=tr,
+            dtype=torch.float32,
+            device=device,
+            fname_file_path=f"{cfg.ds_path}/val2017.txt",
+            norm_feats=False,
+            channels_to_blank=cfg.channels_to_blank,
+            channel_dup=cfg.channel_dup,
+            _do_random_roll=cfg.do_random_roll,
+        )
+        return (train_ds, val_ds)
     else:
         tr = closest_resize_crop(cfg.img_l, 14)
         embed_model: PretrainedViTWrapper = get_model("base", "constant", False, False, -1, False, False, device)
@@ -276,8 +309,8 @@ seed_everything(SEED)
 IMG_L = 224
 CACHE = True
 cfg = Config(
-    experiment_name="test_joint_embed",
-    ds_type="joint",
+    experiment_name="coco_slow_const",
+    ds_type="otf_coco",
     ds_path="../JAFAR/data/COCOStuff/dataset/images",
     img_l=IMG_L,
     model_type="plus_alibi",
@@ -285,21 +318,22 @@ cfg = Config(
     stride=14,
     zero_pos_emb=True,
     freeze_pos_emb=True,
-    alibi_slope_type="learned",
+    alibi_slope_type="constant",
     norm_alibi=True,
     wrap_alibi=True,
     jitter_mag=0.0,
-    n_epochs=100,
-    batch_size=128,
+    n_epochs=15,
+    batch_size=256,
     channels_to_blank=[47, 113, 117, 359],
     channel_dup=False,
-    do_random_roll=True,
+    do_random_roll=False,
     loss_type="cosine",
     n_epochs_warmup=-1,
-    lr=1e-3,
+    lr=5e-4,
     pretrained=True,
     add_cls_token=True,
     n_reg_tokens=4,
+    save_per=1,
     # existing_checkpoint="experiments/20260127_1554/best_model.pth",
 )
 # Multiscale training config
@@ -361,8 +395,8 @@ def my_collate(batch):
     return torch.stack(x), torch.stack(y), funcs
 
 
-train_dl = DataLoader(train_ds, cfg.batch_size, True, drop_last=True, collate_fn=my_collate)
-val_dl = DataLoader(val_ds, cfg.batch_size, True, drop_last=True, collate_fn=my_collate)
+train_dl = DataLoader(train_ds, cfg.batch_size, True, drop_last=True)
+val_dl = DataLoader(val_ds, cfg.batch_size, True, drop_last=True)
 
 
 # model = AlibiVitWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
@@ -393,11 +427,6 @@ train_losses: list[float] = []
 val_losses: list[float] = []
 best_val_loss = 1e6
 
-# TODO:
-# - pca vis for sqircle & dog (2 different res) for base dv2, trained and cleaned
-# - consider test dl for zero pos enc
-# - consider complilation
-# - consider LR scheduling
 
 for epoch in range(cfg.n_epochs):
     if epoch == cfg.n_epochs_warmup:
@@ -414,7 +443,6 @@ for epoch in range(cfg.n_epochs):
         train_loss += loss
         if i % 50 == 0:
             print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
-            # break
 
     train_loss /= len(train_dl)
     val_loss = 0.0
@@ -427,7 +455,6 @@ for epoch in range(cfg.n_epochs):
         val_loss += loss
         if j % 50 == 0:
             print(f"Train batch {j}/{N_batches} | Loss: {loss:.4f}")
-            # break
     val_loss /= len(val_dl)
 
     if val_loss < best_val_loss:
@@ -441,13 +468,16 @@ for epoch in range(cfg.n_epochs):
 
     if epoch % cfg.save_per == 0:
         if cfg.ds_type == "joint":
-            x, y_true, _ = batch
+            x, y_true, tr = batch
         else:
             x, y_true = batch
         x = x[:N_VIS].to(DEVICE)
         y_true = y_true[:N_VIS].to(DEVICE)
         with torch.no_grad():
             y_pred = model.forward_features(x, make_2D=True)
+
+        if cfg.ds_type == "joint":
+            x = torch.stack([tr_(i) for tr_, i in zip(tr[:N_VIS], x)])
 
         vis_img = visualise(x, y_true, y_pred, "tmp/val_vis.png")
         vis_img_arr = np.array(vis_img).transpose(2, 0, 1)
