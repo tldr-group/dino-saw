@@ -35,7 +35,7 @@ def nop(x: torch.Tensor) -> torch.Tensor:
     return x
 
 
-class JointEmbeddingDataset(Dataset):
+class OTFEmbeddingDataset(Dataset):
     def __init__(
         self,
         embed_model: PretrainedViTWrapper,
@@ -49,7 +49,7 @@ class JointEmbeddingDataset(Dataset):
         squeeze_batch_dim_from_image: bool = True,
         squeeze_batch_dim_from_embed: bool = True,
         channels_to_blank: list[int] = [],
-        _channel_dup: bool = False,
+        channel_dup: bool = False,
         _do_random_roll: bool = False,
     ):
         self.embed_model = embed_model
@@ -61,7 +61,9 @@ class JointEmbeddingDataset(Dataset):
         self.norm_feats = norm_feats
         self.squeeze_batch_dim_from_embed = squeeze_batch_dim_from_embed
         self.squeeze_batch_dim_from_image = squeeze_batch_dim_from_image
+
         self.channels_to_blank = channels_to_blank
+        self.channel_dup = channel_dup
 
     def get_img_paths(self, base_path: str, fname_file_path: str | None) -> list[str]:
         if fname_file_path is not None:
@@ -92,11 +94,25 @@ class JointEmbeddingDataset(Dataset):
         transform: Compose,
         squeeze_batch_dim_from_image: bool = True,
     ) -> torch.Tensor:
-        img, _ = load_image(path, transform, to_gpu=False, to_half=False, device_str="cpu")
+        img, _ = load_image(path, transform, to_gpu=True, to_half=False, device_str=self.device)
         if squeeze_batch_dim_from_image:
             img = img.squeeze(0)
         return img
 
+    def __len__(self) -> int:
+        return len(self.img_paths)
+
+    @torch.no_grad()
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        path = self.img_paths[index]
+        img = self.load_image(path, self.transform, self.squeeze_batch_dim_from_image)
+
+        vit_emb = self.embed_model.forward_features(img.unsqueeze(0), True)
+        target_emb = self.operate_on_channels(vit_emb.squeeze(0), self.channels_to_blank, False)
+        return img.to(self.dtype), target_emb.to(self.dtype)
+
+
+class JointEmbeddingDataset(OTFEmbeddingDataset):
     def get_transform(self) -> tuple[Tr, Tr]:
         tr_types = ("flip", "rot", "shift", "none", "none")
         tr_type = choice(tr_types)
@@ -128,22 +144,9 @@ class JointEmbeddingDataset(Dataset):
         path = self.img_paths[index]
         img = self.load_image(path, self.transform, self.squeeze_batch_dim_from_image)
 
-        direction = ("transform_vit", "transform_alibi")[randint(0, 1)]
-
         img_tr, embed_tr = self.get_transform()
 
-        # TODO: remove this branch?
-        if direction == "transform_vit":
-            # enforce ALiBi(Tr(I)) = Tr(ViT(I))
-            fwd_img = img.unsqueeze(0).to(self.device)
-            vit_emb = self.embed_model.forward_features(fwd_img, True)
-            alibi_img = img_tr(img)
-            target_emb = embed_tr(vit_emb).squeeze(0)
-            target_emb = self.operate_on_channels(target_emb, self.channels_to_blank, False)
-            return alibi_img.to(self.dtype), target_emb.to(self.dtype), nop
-        else:
-            # enforce Tr(ALiBi(I)) = ViT(Tr(I))
-            fwd_img = img_tr(img).unsqueeze(0).to(self.device)
-            vit_emb = self.embed_model.forward_features(fwd_img, True)
-            target_emb = self.operate_on_channels(vit_emb.squeeze(0), self.channels_to_blank, False)
-            return img.to(self.dtype), target_emb.to(self.dtype), embed_tr
+        # enforce Tr(ALiBi(I)) = ViT(Tr(I))
+        vit_emb = self.embed_model.forward_features(fwd_img.unsqueeze(0), True)
+        target_emb = self.operate_on_channels(vit_emb.squeeze(0), self.channels_to_blank, False)
+        return img.to(self.dtype), target_emb.to(self.dtype), embed_tr
