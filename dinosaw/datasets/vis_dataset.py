@@ -137,7 +137,7 @@ def visualise_segmentation(
     pred_feats: torch.Tensor | None,
     out_path: str | None,
 ):
-    n_rows = 4 if isinstance(pred_feats, torch.Tensor) else 2
+    n_rows = 4 if isinstance(pred_feats, torch.Tensor) else 3
     img_unnormed = unnorm(img)
     img_rgb = (img_unnormed - img_unnormed.min()) / (
         img_unnormed.max() - img_unnormed.min()

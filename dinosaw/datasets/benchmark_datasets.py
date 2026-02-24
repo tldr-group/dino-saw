@@ -9,6 +9,11 @@ from dinosaw.utils import load_image, resize_crop
 import dinosaw.utils as utils
 import geobench
 import glob
+import cv2
+
+# ADE20K
+import random
+import os
 
 
 from typing import Literal
@@ -208,6 +213,127 @@ class ADE20KDataset(Dataset):
         # print(target_transformed.max(), target_transformed.min())
         # label = to_ADE20K_label(target_transformed)
         return target_transformed.long()
+
+
+class DatasetADE_NEW(Dataset):
+    def __init__(self, base_path: str, mode: Mode, img_size=518, max_sample: int = -1):
+        txt = f"{base_path}/ADE20K_object150_{mode}.txt"
+        # mode_folder = "training" if mode == "train" else "validation"
+        self.root_img = f"{base_path}/images"
+        self.root_seg = f"{base_path}/annotations"
+        self.imgSize = img_size
+        self.segSize = img_size
+        self.is_train = mode == "train"
+
+        # mean and std
+        # self.img_transform = transforms.Compose([
+        #     transforms.Normalize(mean=[0.485, 0.456, 0.406],
+        #                          std=[0.229, 0.224, 0.225])])
+
+        self.list_sample = [x.rstrip() for x in open(txt, "r")]
+
+        if self.is_train:
+            random.shuffle(self.list_sample)
+        if max_sample > 0:
+            self.list_sample = self.list_sample[0:max_sample]
+        num_sample = len(self.list_sample)
+        assert num_sample > 0
+        print("# samples: {}".format(num_sample))
+
+    def _scale_and_crop(self, img, seg, cropSize, is_train):
+        h, w = img.shape[-2], img.shape[-1]
+
+        if is_train:
+            # random scale
+            scale = random.random() + 0.5  # 0.5-1.5
+            scale = max(scale, 1.0 * cropSize / (min(h, w) - 1))
+        else:
+            # scale to crop size
+            scale = 1.0 * cropSize / (min(h, w) - 1)
+
+        img_scale = torch.nn.functional.interpolate(
+            img, scale_factor=scale, mode="bilinear"
+        )
+        seg_scale = torch.nn.functional.interpolate(
+            seg.unsqueeze(0), scale_factor=scale, mode="nearest"
+        ).squeeze()
+
+        h_s, w_s = img_scale.shape[-2], img_scale.shape[-1]
+        if is_train:
+            # random crop
+            x1 = random.randint(0, w_s - cropSize)
+            y1 = random.randint(0, h_s - cropSize)
+        else:
+            # center crop
+            x1 = (w_s - cropSize) // 2
+            y1 = (h_s - cropSize) // 2
+        # print(f"{seg_scale.shape=}, {img_scale.shape=}")
+        img_crop = img_scale[:, :, y1 : y1 + cropSize, x1 : x1 + cropSize]
+        seg_crop = seg_scale[y1 : y1 + cropSize, x1 : x1 + cropSize]
+        return img_crop, seg_crop
+
+    def _flip(self, img, seg):
+        img_flip = img.flip(-1)
+        seg_flip = seg.flip(-1)
+        return img_flip, seg_flip
+
+    def __getitem__(self, index):
+        img_basename = self.list_sample[index]
+        path_img = os.path.join(self.root_img, img_basename)
+        path_seg = os.path.join(self.root_seg, img_basename.replace(".jpg", ".png"))
+
+        assert os.path.exists(path_img), "[{}] does not exist".format(path_img)
+        assert os.path.exists(path_seg), "[{}] does not exist".format(path_seg)
+
+        # load image and label
+
+        img = v2.functional.to_tensor(Image.open(path_img).convert("RGB")).unsqueeze(0)
+        seg = torch.tensor(cv2.imread(path_seg, cv2.IMREAD_GRAYSCALE)).unsqueeze(0)
+        # print(f"{seg.shape=}, {img.shape=}")
+        # print(seg.max())
+        assert img.ndim == 4
+        assert seg.ndim == 3
+        assert img.shape[-1] == seg.shape[-1]
+        assert img.shape[-2] == seg.shape[-2]
+
+        # random scale, crop, flip
+        if self.imgSize > 0:
+            img, seg = self._scale_and_crop(img, seg, self.imgSize, self.is_train)
+            if random.choice([-1, 1]) > 0:
+                img, seg = self._flip(img, seg)
+
+        # image to float
+        img = img.to(torch.float32)
+        image = img.squeeze()
+
+        # if self.segSize > 0:
+        #     seg = imresize(seg, (self.segSize, self.segSize), interp="nearest")
+
+        # label to int from -1 to 149
+        segmentation = seg.long() - 1
+
+        # to torch tensor
+        # image = torch.from_numpy(img)
+        # segmentation = torch.from_numpy(seg)
+        # except Exception as e:
+        #     print("Failed loading image/segmentation [{}]: {}".format(path_img, e))
+        #     # dummy data
+        #     image = torch.zeros(3, self.imgSize, self.imgSize)
+        #     segmentation = -1 * torch.ones(self.segSize, self.segSize).long()
+        #     return image, segmentation, img_basename
+
+        # substracted by mean and divided by std
+        # image = self.img_transform(image)
+
+        if len(segmentation.shape) != 2 or len(image.shape) != 3:
+            raise Exception(
+                f"{segmentation.shape=} != 2 or {image.shape=} != 3 for {img_basename}"
+            )
+
+        return image, segmentation  # , img_basename
+
+    def __len__(self):
+        return len(self.list_sample)
 
 
 class GeoBenchDataset(torch.utils.data.Dataset):

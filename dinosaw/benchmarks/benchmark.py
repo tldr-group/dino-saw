@@ -18,6 +18,7 @@ from dinosaw.datasets.benchmark_datasets import (
     VOC_Dataset,
     ADE20KDataset,
     GeoBenchDataset,
+    DatasetADE_NEW,
     Satellites,
 )
 from dinosaw.models.alibi import AlibiSlopeType
@@ -79,9 +80,9 @@ def get_head(benchmark: Benchmarks) -> nn.Sequential | DPTHead:
             )
         case "ADE20K":
             return nn.Sequential(
-                nn.SyncBatchNorm(num_features=384),
+                # nn.SyncBatchNorm(num_features=384),
                 nn.Dropout2d(p=0.1),
-                nn.Conv2d(in_channels=384, out_channels=151, kernel_size=1),
+                nn.Conv2d(in_channels=384, out_channels=150, kernel_size=1),
             )
         case "LandSat":
             return nn.Sequential(
@@ -121,7 +122,7 @@ def get_loss(loss_type: Losses, benchmark: Benchmarks, reduction: str = "mean"):
             return cosine_sim_wrapper
         case "CE":
             return nn.CrossEntropyLoss(
-                reduction=reduction, ignore_index=255 if benchmark == "VOC12" else 0
+                reduction=reduction, ignore_index=255 if benchmark == "VOC12" else -1
             )
         case _:
             raise Exception(f"Unsupported loss {loss_type}")
@@ -202,10 +203,10 @@ def get_model(
             torch.load(existing_checkpoint, map_location=device, weights_only=True)
         )
 
-    model.model.blocks[11].attn.activate_matrix = False
-    model.model.blocks[10].attn.activate_matrix = False
-    model.model.blocks[9].attn.activate_matrix = False
-    model.model.blocks[8].attn.activate_matrix = False
+    # model.model.blocks[11].attn.activate_matrix = False
+    # model.model.blocks[10].attn.activate_matrix = False
+    # model.model.blocks[9].attn.activate_matrix = False
+    # model.model.blocks[8].attn.activate_matrix = False
 
     return model
 
@@ -285,14 +286,16 @@ seed_everything(SEED)
 
 
 cfg = Config(
-    experiment_name="VOC_20260221_2258_test_learned_slope_with_jitter_last_4_layers_no_alibi_100_224_5e-4_10_518_bs8_5e-5",
-    benchmark="VOC12",
-    existing_checkpoint="../experiments/20260221_2258_test_learned_slope_with_jitter_last_4_layers_no_alibi_100_224_5e-4_10_518_bs8_5e-5/best_model.pth",
-    # existing_checkpoint="../ronan_model/nope_vits_14_reg_ms.pth",
-    model_type="plus_alibi",
-    wrap_alibi=True,
-    alibi_slope_type="learned",
-    batch_size=64,
+    experiment_name="new_ade_NoPE",
+    benchmark="ADE20K",
+    # existing_checkpoint="../experiments/20260221_2258_test_learned_slope_with_jitter_last_4_layers_no_alibi_100_224_5e-4_10_518_bs8_5e-5/best_model.pth",
+    # existing_checkpoint="/home/pawlo/Arbeit/positional_bias/dino-saw/trained_models/alibi_dv2_cb_l_j_mo.pth",
+    existing_checkpoint="../../trained_models/nope_dv2_vits14_reg.pth",
+    model_type="base",
+    # optim="SGD",
+    # wrap_alibi=True,
+    # alibi_slope_type="learned",
+    batch_size=8,
     lr=1e-3,
     save_per=1,
 )
@@ -326,13 +329,21 @@ match cfg.benchmark:
             mode="val",
         )
     case "ADE20K":
-        train_ds = ADE20KDataset(
-            base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
+        # train_ds = ADE20KDataset(
+        #     base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
+        #     mode="train",
+        # )
+        train_ds = DatasetADE_NEW(
+            base_path="../../Datasets/ADEChallengeData2016",
             mode="train",
+            max_sample=1000,
         )
-        val_ds = ADE20KDataset(
-            base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
-            mode="val",
+        # val_ds = ADE20KDataset(
+        #     base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
+        #     mode="val",
+        # )
+        val_ds = DatasetADE_NEW(
+            base_path="../../Datasets/ADEChallengeData2016", mode="val"
         )
     case "m-cashew-plant":
         train_ds = GeoBenchDataset("m-cashew-plant", mode="train", size=IMG_L)
@@ -354,7 +365,7 @@ train_dl = DataLoader(
 val_dl = DataLoader(
     val_ds,
     cfg.batch_size,
-    True,
+    False,
     drop_last=True,
     # num_workers=4,
     # pin_memory=True,
@@ -406,8 +417,8 @@ match cfg.benchmark:
         ).to(DEVICE)
     case "ADE20K":
         mean_iou = MulticlassJaccardIndex(
-            num_classes=151,
-            ignore_index=0,
+            num_classes=150,
+            ignore_index=-1,
             average="macro",
         ).to(DEVICE)
     case "LandSat":
