@@ -2,7 +2,7 @@ import torch
 from torch import nn, optim
 import numpy as np
 
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from os import makedirs
 from shutil import rmtree
@@ -11,9 +11,10 @@ from torch.utils.tensorboard.writer import SummaryWriter
 
 from dinosaw.datasets.vis_dataset import visualise
 from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
+from dinosaw.datasets.joint_embed_dataset import JointEmbeddingDataset
 from dinosaw.models.alibi import AlibiSlopeType
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
-from dinosaw.utils import seed_everything, closest_resize
+from dinosaw.utils import seed_everything, closest_resize, closest_resize_crop
 
 from dataclasses import dataclass, field
 from typing import Literal
@@ -21,6 +22,7 @@ from typing import Literal
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
 ModelType = Literal["base", "plus_alibi", "nope"]
+DatasetType = Literal["joint", "direct"]
 
 
 @dataclass
@@ -28,6 +30,7 @@ class Config:
     experiment_name: str = "default_experiment"
 
     ds_path: str = "data/IN_reduced_base_224"
+    ds_type: DatasetType = "direct"
     img_l: int = 224
 
     model_type: ModelType = "base"
@@ -174,6 +177,61 @@ def get_loss(loss_type: Losses, reduction: str = "mean"):
             raise Exception(f"Unsupported loss {loss_type}")
 
 
+def get_ds(cfg: Config, device: str) -> tuple[Dataset, Dataset]:
+
+    train_ds: Dataset
+    val_ds: Dataset
+    if cfg.ds_type == "direct":
+        tr = closest_resize(cfg.img_l, cfg.img_l, 14)
+
+        train_ds = HomogenizedEmbeddingDataset(
+            cfg.ds_path,
+            "train",
+            transform=tr,
+            store_in_memory=CACHE,
+            channels_to_blank=cfg.channels_to_blank,
+            channel_dup=cfg.channel_dup,
+            do_random_roll=cfg.do_random_roll,
+        )
+        val_ds = HomogenizedEmbeddingDataset(
+            cfg.ds_path,
+            "val",
+            transform=tr,
+            store_in_memory=CACHE,
+            channels_to_blank=cfg.channels_to_blank,
+            channel_dup=cfg.channel_dup,
+            do_random_roll=cfg.do_random_roll,
+        )
+        return (train_ds, val_ds)
+    else:
+        tr = closest_resize_crop(cfg.img_l, 14)
+        embed_model: PretrainedViTWrapper = get_model("base", "constant", False, False, -1, False, False, device)
+        embed_model.eval()
+        embed_model = embed_model.to(device)
+        embed_model = torch.compile(embed_model)
+        train_ds = JointEmbeddingDataset(
+            embed_model,
+            f"{cfg.ds_path}/train2017",
+            "train",
+            transform=tr,
+            dtype=torch.float32,
+            device=device,
+            fname_file_path=f"{cfg.ds_path}/train2017.txt",
+            norm_feats=False,
+        )
+        val_ds = JointEmbeddingDataset(
+            embed_model,
+            f"{cfg.ds_path}/val2017",
+            "val",
+            transform=tr,
+            dtype=torch.float32,
+            device=device,
+            fname_file_path=f"{cfg.ds_path}/val2017.txt",
+            norm_feats=False,
+        )
+        return (train_ds, val_ds)
+
+
 def feed_batch_get_loss(
     model: PretrainedViTWrapper,
     optimizer: optim.Optimizer,
@@ -181,8 +239,14 @@ def feed_batch_get_loss(
     batch: torch.Tensor,
     training: bool,
     device: str = "cuda",
+    dataset_type: DatasetType = "direct",
 ) -> float:
-    x, y_true = batch
+
+    if dataset_type == "joint":
+        x, y_true, tr = batch
+    else:
+        x, y_true = batch
+
     x = x.to(device)
     y_true = y_true.to(device)
     if training:
@@ -192,6 +256,9 @@ def feed_batch_get_loss(
         model.eval()
     with torch.set_grad_enabled(training):
         y_pred = model.forward_features(x, make_2D=True)
+        if dataset_type == "joint":
+            y_pred = torch.stack([tr_(i) for tr_, i in zip(tr, y_pred)])
+
         loss = loss_fn(y_pred, y_true)
         if training:
             loss.backward()
@@ -202,13 +269,42 @@ def feed_batch_get_loss(
     return loss.item()
 
 
-EXPR_PATH = f"experiments/current/{datetime.now().strftime('%Y%m%d_%H%M')}"
 SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
-# IMG_L = 224
-# CACHE = True
+IMG_L = 224
+CACHE = True
+cfg = Config(
+    experiment_name="test_joint_embed",
+    ds_type="joint",
+    ds_path="../JAFAR/data/COCOStuff/dataset/images",
+    img_l=IMG_L,
+    model_type="plus_alibi",
+    vit_model_type=MODEL_LIST[1],
+    stride=14,
+    zero_pos_emb=True,
+    freeze_pos_emb=True,
+    alibi_slope_type="learned",
+    norm_alibi=True,
+    wrap_alibi=True,
+    jitter_mag=0.0,
+    n_epochs=100,
+    batch_size=128,
+    channels_to_blank=[47, 113, 117, 359],
+    channel_dup=False,
+    do_random_roll=True,
+    loss_type="cosine",
+    n_epochs_warmup=-1,
+    lr=1e-3,
+    pretrained=True,
+    add_cls_token=True,
+    n_reg_tokens=4,
+    # existing_checkpoint="experiments/20260127_1554/best_model.pth",
+)
+# Multiscale training config
+# IMG_L = 518
+# CACHE = False
 # cfg = Config(
 #     experiment_name="alibi_cb_dv2_vits14_reg_learned_m_roll_j",
 #     ds_path=f"data/IN_reduced_base_{IMG_L}",
@@ -222,48 +318,20 @@ seed_everything(SEED)
 #     norm_alibi=True,
 #     wrap_alibi=True,
 #     jitter_mag=0.025,
-#     n_epochs=100,
-#     batch_size=128,
+#     n_epochs=20,
+#     batch_size=32,
 #     channels_to_blank=[47, 113, 117, 359],
-#     channel_dup=False,
 #     do_random_roll=True,
 #     loss_type="cosine",
 #     n_epochs_warmup=-1,
-#     lr=1e-3,
-#     pretrained=True,
+#     lr=1e-4,
 #     add_cls_token=True,
 #     n_reg_tokens=4,
-#     # existing_checkpoint="experiments/20260127_1554/best_model.pth",
+#     existing_checkpoint="experiments/current/20260217_1926/best_model.pth",
 # )
-# Multiscale training config
-IMG_L = 518
-CACHE = False
-cfg = Config(
-    experiment_name="alibi_cb_dv2_vits14_reg_learned_m_roll_j",
-    ds_path=f"data/IN_reduced_base_{IMG_L}",
-    img_l=IMG_L,
-    model_type="plus_alibi",
-    vit_model_type=MODEL_LIST[1],
-    stride=14,
-    zero_pos_emb=True,
-    freeze_pos_emb=True,
-    alibi_slope_type="learned",
-    norm_alibi=True,
-    wrap_alibi=True,
-    jitter_mag=0.025,
-    n_epochs=20,
-    batch_size=32,
-    channels_to_blank=[47, 113, 117, 359],
-    do_random_roll=True,
-    loss_type="cosine",
-    n_epochs_warmup=-1,
-    lr=1e-4,
-    add_cls_token=True,
-    n_reg_tokens=4,
-    existing_checkpoint="experiments/current/20260217_1926/best_model.pth",
-)
 print(cfg)
 
+EXPR_PATH = f"experiments/current/{datetime.now().strftime('%Y%m%d_%H%M')}_{cfg.experiment_name}"
 try:
     rmtree(EXPR_PATH)
 except FileNotFoundError:
@@ -276,31 +344,25 @@ writer.add_text("desc", cfg.experiment_name)
 
 DEVICE = "cuda:1"
 
-tr = closest_resize(cfg.img_l, cfg.img_l, 14)
-train_ds = HomogenizedEmbeddingDataset(
-    cfg.ds_path,
-    "train",
-    transform=tr,
-    store_in_memory=CACHE,
-    channels_to_blank=cfg.channels_to_blank,
-    channel_dup=cfg.channel_dup,
-    do_random_roll=cfg.do_random_roll,
-)
-val_ds = HomogenizedEmbeddingDataset(
-    cfg.ds_path,
-    "val",
-    transform=tr,
-    store_in_memory=CACHE,
-    channels_to_blank=cfg.channels_to_blank,
-    channel_dup=cfg.channel_dup,
-    do_random_roll=cfg.do_random_roll,
-)
+
+train_ds, val_ds = get_ds(cfg, DEVICE)
 
 print(f"Train dataset size: {len(train_ds)}")
 print(f"Validation dataset size: {len(val_ds)}")
 
-train_dl = DataLoader(train_ds, cfg.batch_size, True, drop_last=True)
-val_dl = DataLoader(val_ds, cfg.batch_size, True, drop_last=True)
+
+def my_collate(batch):
+    # batch is a list of tuples/dicts from __getitem__
+    x = [item[0] for item in batch]
+    y = [item[1] for item in batch]
+    funcs = [item[2] for item in batch]
+
+    # Manually stack the data, but keep functions as a raw list
+    return torch.stack(x), torch.stack(y), funcs
+
+
+train_dl = DataLoader(train_ds, cfg.batch_size, True, drop_last=True, collate_fn=my_collate)
+val_dl = DataLoader(val_ds, cfg.batch_size, True, drop_last=True, collate_fn=my_collate)
 
 
 # model = AlibiVitWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
@@ -346,18 +408,26 @@ for epoch in range(cfg.n_epochs):
     batch: torch.Tensor
     N_batches = len(train_dl)
     for i, batch in enumerate(train_dl):
-        loss = feed_batch_get_loss(model, optimizer, loss_fn, batch, training=True, device=DEVICE)
+        loss = feed_batch_get_loss(
+            model, optimizer, loss_fn, batch, training=True, device=DEVICE, dataset_type=cfg.ds_type
+        )
         train_loss += loss
-        # if i % 50 == 0:
-        #     print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
+        if i % 50 == 0:
+            print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
+            # break
 
     train_loss /= len(train_dl)
     val_loss = 0.0
     batch: torch.Tensor
     # for batch in [next(iter(val_dl))][:1]:
-    for batch in val_dl:
-        loss = feed_batch_get_loss(model, optimizer, loss_fn, batch, training=False, device=DEVICE)
+    for j, batch in enumerate(val_dl):
+        loss = feed_batch_get_loss(
+            model, optimizer, loss_fn, batch, training=False, device=DEVICE, dataset_type=cfg.ds_type
+        )
         val_loss += loss
+        if j % 50 == 0:
+            print(f"Train batch {j}/{N_batches} | Loss: {loss:.4f}")
+            # break
     val_loss /= len(val_dl)
 
     if val_loss < best_val_loss:
@@ -370,7 +440,10 @@ for epoch in range(cfg.n_epochs):
     print(f"Epoch {epoch:04d}/{cfg.n_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
     if epoch % cfg.save_per == 0:
-        x, y_true = batch
+        if cfg.ds_type == "joint":
+            x, y_true, _ = batch
+        else:
+            x, y_true = batch
         x = x[:N_VIS].to(DEVICE)
         y_true = y_true[:N_VIS].to(DEVICE)
         with torch.no_grad():
