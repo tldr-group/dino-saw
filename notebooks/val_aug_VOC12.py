@@ -6,9 +6,12 @@ from typing import Literal
 from random import choice
 from functools import partial
 import matplotlib.pyplot as plt
+from dinosaw.utils import seed_everything
 
 Transforms = Literal["roll", "rot90", "flip-ud"]
 
+SEED = 1025
+seed_everything(SEED)
 
 BATCH_SIZE = 64
 MODEL = "coco"
@@ -90,8 +93,16 @@ class AugmentModel(nn.Module):
             #     return partial(flip, dim=-1), partial(flip, dim=-1)
             # else:
             return partial(flip, dim=-2), partial(flip, dim=-2)
+        elif tr_type == "flip-lr":
+            return partial(flip, dim=-1), partial(flip, dim=-1)
         elif tr_type == "rot90":
-            angle = choice((90, 270))
+            angle = 90
+            return partial(rot, angle=angle), partial(rot, angle=-angle)
+        elif tr_type == "rot180":
+            angle = 180
+            return partial(rot, angle=angle), partial(rot, angle=-angle)
+        elif tr_type == "rot270":
+            angle = 270
             return partial(rot, angle=angle), partial(rot, angle=-angle)
         elif tr_type == "roll":
             dirs = ((1, 0), (-1, 0), (0, 1), (0, -1))
@@ -167,7 +178,7 @@ df = pd.DataFrame(
         "batch_loss",
     ]
 )
-for TR in ["none", "flip-ud", "rot90", "roll"]:
+for TR in ["none", "flip-ud", "rot90", "roll", "flip-lr", "rot180", "rot270"]:
     if MODEL == "Dv2":
         model = PretrainedViTWrapper(
             model_identifier=MODEL_LIST[1],
@@ -182,9 +193,7 @@ for TR in ["none", "flip-ud", "rot90", "roll"]:
 
     model_aug = AugmentModel(model=model, device=DEVICE, size=518, tr_type=TR)
     model_aug.load_state_dict(
-        torch.load(
-            "/home/pawlo/Arbeit/positional_bias/dino-saw/dinosaw/benchmarks/experiments/20260225_1100_VOC_coco/best_model.pth"
-        )
+        torch.load("../trained_models/lin_model_WS_VOC_coco.pth", map_location=DEVICE)
     )
 
     val_losses: list[float] = []
