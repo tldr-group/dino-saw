@@ -107,7 +107,7 @@ class AugmentModel(nn.Module):
         elif tr_type == "roll":
             dirs = ((1, 0), (-1, 0), (0, 1), (0, -1))
             dir = choice(dirs)
-            s = choice([i for i in range(1, 8)])
+            s = choice([i for i in range(1, 16)])
             return partial(shift, s=14 * s, dir=dir), partial(
                 shift, s=s, dir=(-dir[0], -dir[1])
             )
