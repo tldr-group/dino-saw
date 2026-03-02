@@ -236,7 +236,17 @@ class PretrainedViTWrapper(nn.Module):
         reshape: bool = True,
         return_prefix_tokens: bool = False,
         norm: bool = True,
+        Dv3: bool = False,
     ) -> list[torch.Tensor] | tuple[torch.Tensor, list[torch.Tensor]]:
+        if Dv3:
+            return self.model.get_intermediate_layers(
+                x,
+                n=n,
+                reshape=reshape,
+                return_class_token=return_prefix_tokens,
+                return_extra_tokens=return_prefix_tokens,
+                norm=norm,
+            )
         """Intermediate layer accessor inspired by DINO / DINOv2 interface.
         Args:
             x: Input tensor.
