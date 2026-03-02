@@ -1,4 +1,6 @@
 from __future__ import annotations
+from PIL import Image
+
 
 from dataclasses import dataclass
 from typing import Literal, TypeAlias, Optional, Iterable
@@ -203,7 +205,7 @@ class ImagePatch(CustomPatch):
             extent=(bb.x0, bb.x1, bb.y0, bb.y1),
             transform=ax.transAxes,
             aspect="auto",
-            zorder=0,
+            zorder=100,
         )
 
 
@@ -263,6 +265,8 @@ class ArrowConnector(CustomPatch):
         shrinkB: float = 0,
         linestyle: str = "solid",
         color: str = "black",
+        lw: float = 1.5,
+        scale: float = 12.0,
     ):
         # arrows do not own layout; they derive it dynamically
         super().__init__(layout=FigureSpec(0, 0, 0, 0))
@@ -278,6 +282,8 @@ class ArrowConnector(CustomPatch):
         self.arrowstyle = arrowstyle
         self.linestyle = linestyle
         self.color = color
+        self.lw = lw
+        self.scale = scale
 
     @property
     def bbox(self) -> Bbox:
@@ -349,8 +355,8 @@ class ArrowConnector(CustomPatch):
             (x0, y0),
             (x1, y1),
             arrowstyle=self.arrowstyle,
-            mutation_scale=12,
-            linewidth=1.5,
+            mutation_scale=self.scale,
+            linewidth=self.lw,
             color=self.color,
             linestyle=self.linestyle,
             transform=ax.transAxes,
