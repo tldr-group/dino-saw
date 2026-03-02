@@ -145,6 +145,26 @@ def closest_resize(h: int, w: int, patch_size: int = 14, to_tensor: bool = True)
     return transform
 
 
+def closest_resize_crop(L: int, patch_size: int = 14, to_tensor: bool = True) -> transforms.Compose:
+    assert L % patch_size == 0, "L must be divisible by patch_size"
+    if to_tensor:
+        transform = transforms.Compose(
+            [
+                transforms.Resize(L),
+                transforms.CenterCrop((L, L)),
+                to_norm_tensor,
+            ]
+        )
+    else:
+        transform = transforms.Compose(
+            [
+                transforms.Resize(L),
+                transforms.CenterCrop((L, L)),
+            ]
+        )
+    return transform
+
+
 def get_shortest_side_resize_dims(img_h: int, img_w: int, min_l: int) -> tuple[int, int]:
     if min(img_w, img_h) > min_l:
         sf = min(img_w / min_l, img_h / min_l)
