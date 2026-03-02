@@ -358,9 +358,21 @@ class GeoBenchDataset(torch.utils.data.Dataset):
                 )
 
         # shape = self.dataset[0].label.data.shape
-        self.tr = utils.closest_resize(self.size, self.size, to_tensor=False)
-        self.target_tr = utils.closest_resize(
-            self.size, self.size, to_tensor=False, normalize=False
+        self.tr = v2.Compose(
+            [
+                utils.closest_resize(self.size, self.size, to_tensor=False),
+                v2.Normalize(mean=utils.MU, std=utils.SIGMA),
+            ]
+        )
+        sub_h: int = self.size % 14
+        sub_w: int = self.size % 14
+        new_h, new_w = self.size - sub_h, self.size - sub_w
+        self.target_tr = v2.Compose(
+            [
+                v2.Resize(
+                    (new_h, new_w), interpolation=v2.InterpolationMode.NEAREST_EXACT
+                )
+            ]
         )
 
     def __len__(self):
@@ -368,7 +380,10 @@ class GeoBenchDataset(torch.utils.data.Dataset):
 
     def get_target(self, index):
         target = utils.convert_image(
-            torch.tensor(self.dataset[index].label.data).unsqueeze(0), self.target_tr
+            torch.tensor(self.dataset[index].label.data).unsqueeze(0),
+            self.target_tr,
+            to_half=False,
+            device_str="cpu",
         ).squeeze()
 
         return target.cpu()
@@ -380,11 +395,20 @@ class GeoBenchDataset(torch.utils.data.Dataset):
                 bands.append(torch.tensor(band.data))
                 # print(band.band_info.name)
 
+        # print(f"{bands=}")
+
         # flipping to right RGB color orientation
         if self.benchmark_name in ("m-cashew-plant", "m-SA-crop-type"):
-            image = utils.convert_image(torch.stack(bands).flip(0).float(), self.tr)
+            image = utils.convert_image(
+                torch.stack(bands).flip(0).float(),
+                self.tr,
+                to_half=False,
+                device_str="cpu",
+            )
         else:
-            image = utils.convert_image(torch.stack(bands).float(), self.tr)
+            image = utils.convert_image(
+                torch.stack(bands).float(), self.tr, to_half=False, device_str="cpu"
+            )
 
         return image.squeeze().cpu()
 
@@ -392,7 +416,75 @@ class GeoBenchDataset(torch.utils.data.Dataset):
         image = self.get_image(index)
         target = self.get_target(index)
 
-        return image.to(self.dtype), target.long()
+        return image.to(
+            self.dtype
+        ), target.long() - 1  # shifting targets to have ignored index at -1
+
+
+class GF7(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        base_path: str,
+        mode: Mode,
+        size=518,
+        dtype: torch.dtype = torch.float32,
+    ) -> None:
+        super().__init__()
+        self.dtype = dtype
+        self.size = size
+        self.mode = mode
+        self.base_path = base_path
+
+        self.img_paths, self.target_paths = self.get_paths()
+
+        self.tr = v2.Compose(
+            [utils.closest_resize(self.size, self.size, to_tensor=True)]
+        )
+        sub_h: int = self.size % 14
+        sub_w: int = self.size % 14
+        new_h, new_w = self.size - sub_h, self.size - sub_w
+        self.target_tr = v2.Compose(
+            [
+                v2.Resize(
+                    (new_h, new_w), interpolation=v2.InterpolationMode.NEAREST_EXACT
+                )
+            ]
+        )
+
+    def get_paths(self):
+        return (
+            sorted(glob.glob(f"{self.base_path}/{self.mode}/image/*tif")),
+            sorted(glob.glob(f"{self.base_path}/{self.mode}/label/*tif")),
+        )
+
+    def load_target(self, index):
+        target = torch.tensor(
+            np.array(Image.open(self.target_paths[index])) / 255
+        ).long()
+        target = self.target_tr(target.unsqueeze(0)).squeeze()
+
+        return target
+
+    def load_image(self, index):
+        img = Image.open(self.img_paths[index])
+        image = utils.convert_image(
+            img, self.tr, to_gpu=False, to_half=False, device_str="cpu"
+        )
+        return image.squeeze()
+
+    def __getitem__(self, index):
+        image = self.load_image(index)
+        target = self.load_target(index)
+
+        return image.to(self.dtype), target
+
+    def __len__(self):
+        if len(self.img_paths) != len(self.target_paths):
+            raise ValueError(
+                f"Number of images and targets do not match. Images: {len(self.img_paths)}, Targets: {len(self.target_paths)}"
+            )
+        else:
+            return len(self.img_paths)
 
 
 if __name__ == "__main__":
