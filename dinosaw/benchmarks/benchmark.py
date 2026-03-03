@@ -5,6 +5,8 @@ import geobench
 
 from torch.utils.tensorboard.writer import SummaryWriter
 from torch.utils.data import DataLoader
+from torchvision.datasets import VOCSegmentation
+import torchvision.transforms.v2 as v2
 
 from torchmetrics.classification import MulticlassJaccardIndex
 
@@ -15,11 +17,15 @@ from datetime import datetime
 from dinosaw.datasets.vis_dataset import visualise_segmentation
 from dinosaw.datasets.benchmark_datasets import (
     VOC_Dataset,
+    VOC07_Dataset,
     ADE20KDataset,
     GeoBenchDataset,
     DatasetADE_NEW,
+    GF7,
     Satellites,
 )
+import dinosaw.utils as utils
+from dinosaw.models.DPT_head import DPTHead
 from dinosaw.models.alibi import AlibiSlopeType
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
 from dinosaw.utils import seed_everything, closest_resize
@@ -30,7 +36,7 @@ from dataclasses import dataclass, field
 
 environ["QT_QPA_PLATFORM"] = "offscreen"
 
-Benchmarks = Literal["VOC12", "ADE20K"]
+Benchmarks = Literal["VOC12", "ADE20K", "m-SA-crop-type", "GF7", "VOC07"]
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
 ModelType = Literal["base", "plus_alibi"]
@@ -68,12 +74,17 @@ class Config:
     save_per: int = 2
 
 
-def get_head(benchmark: Benchmarks) -> nn.Sequential:
+def get_head(benchmark: Benchmarks) -> nn.Sequential | DPTHead:
     match benchmark:
         case "VOC12":
             return nn.Sequential(
                 nn.SyncBatchNorm(num_features=384),
-                # nn.LayerNorm([384, 37, 37]),
+                nn.Dropout2d(p=0.1),
+                nn.Conv2d(in_channels=384, out_channels=21, kernel_size=1),
+            )
+        case "VOC07":
+            return nn.Sequential(
+                nn.SyncBatchNorm(num_features=384),
                 nn.Dropout2d(p=0.1),
                 nn.Conv2d(in_channels=384, out_channels=21, kernel_size=1),
             )
@@ -90,12 +101,26 @@ def get_head(benchmark: Benchmarks) -> nn.Sequential:
                 nn.Conv2d(in_channels=384, out_channels=134, kernel_size=1),
             )
         case "m-cashew-plant":
+            # return nn.Sequential(
+            #     nn.SyncBatchNorm(num_features=384),
+            #     nn.Dropout2d(p=0.1),
+            #     nn.Conv2d(in_channels=384, out_channels=6, kernel_size=1),
+            # )
+
+            return DPTHead(n_output_channels=6)
+        case "m-SA-crop-type":
+            # return nn.Sequential(
+            #     nn.SyncBatchNorm(num_features=384),
+            #     nn.Dropout2d(p=0.1),
+            #     nn.Conv2d(in_channels=384, out_channels=9, kernel_size=1),
+            # )
+            return DPTHead(n_output_channels=9)
+        case "GF7":
             return nn.Sequential(
                 nn.SyncBatchNorm(num_features=384),
                 nn.Dropout2d(p=0.1),
-                nn.Conv2d(in_channels=384, out_channels=7, kernel_size=1),
+                nn.Conv2d(in_channels=384, out_channels=2, kernel_size=1),
             )
-
         case _:
             raise Exception(f"benchmark '{benchmark}' not supported!")
 
@@ -115,7 +140,10 @@ def get_loss(loss_type: Losses, benchmark: Benchmarks, reduction: str = "mean"):
             return cosine_sim_wrapper
         case "CE":
             return nn.CrossEntropyLoss(
-                reduction=reduction, ignore_index=255 if benchmark == "VOC12" else -1
+                reduction=reduction,
+                ignore_index=255
+                if (benchmark == "VOC12" or benchmark == "VOC07")
+                else -1,
             )
         case _:
             raise Exception(f"Unsupported loss {loss_type}")
@@ -221,13 +249,27 @@ class BenchmarkModel(nn.Module):
         self.head = get_head(cfg.benchmark).to(device)
 
     def forward(self, x):
-        lr_feats = self.dino.forward_features(x, make_2D=True)
-        if self.channels_to_blank is not None:
-            lr_feats[:, self.channels_to_blank, :, :] = 0
-        lr_pred = self.head(lr_feats)
-        hr_pred = nn.functional.interpolate(
-            input=lr_pred, size=(self.size, self.size), mode="bilinear"
-        )
+        if type(self.head) is not DPTHead:
+            with torch.no_grad():
+                lr_feats = self.dino.forward_features(x, make_2D=True)
+                if self.channels_to_blank is not None:
+                    lr_feats[:, self.channels_to_blank, :, :] = 0
+            lr_pred = self.head(lr_feats)
+            hr_pred = nn.functional.interpolate(
+                input=lr_pred, size=(self.size, self.size), mode="bilinear"
+            )
+        else:
+            print(type(self.head))
+            with torch.no_grad():
+                lr_feats = self.dino.get_intermediate_layers(
+                    x, [5, 7, 9, 11], return_prefix_tokens=True, reshape=True
+                )
+                # if self.channels_to_blank is not None:
+                #     lr_feats[:, self.channels_to_blank, :, :] = 0
+            lr_pred = self.head(lr_feats)
+            hr_pred = nn.functional.interpolate(
+                input=lr_pred, size=(self.size, self.size), mode="bilinear"
+            )
         return hr_pred
 
 
@@ -252,13 +294,14 @@ def feed_batch_get_loss(
         #     .long(),
         # )
     )
+    # print(f"{x.shape=}, {y_true.shape=}")
     x = x.to(device, non_blocking=True)
     y_true = y_true.to(device, non_blocking=True)
     if training:
-        model.train()
+        model.head.train()
         optimizer.zero_grad()
     else:
-        model.eval()
+        model.head.eval()
     with torch.set_grad_enabled(training):
         y_pred = model(x)
         loss = loss_fn(y_pred, y_true)
@@ -279,16 +322,20 @@ seed_everything(SEED)
 
 
 cfg = Config(
-    experiment_name="new_ade_Dv2_norm",
-    benchmark="ADE20K",
+    # experiment_name="TEST_VOC07_alibi_coco_big_norm_fixed_val_loader",
+    experiment_name="TEST_VOC07_Dv2_norm_fixed_val_loader",
+    benchmark="VOC07",
     # existing_checkpoint="../experiments/20260221_2258_test_learned_slope_with_jitter_last_4_layers_no_alibi_100_224_5e-4_10_518_bs8_5e-5/best_model.pth",
     # existing_checkpoint="/home/pawlo/Arbeit/positional_bias/dino-saw/trained_models/alibi_dv2_cb_l_j_mo.pth",
     # existing_checkpoint="../../trained_models/nope_dv2_vits14_reg.pth",
+    # existing_checkpoint="../../trained_models/alibi_const_coco_cb_vits14_reg_slow_ms.pth",
+    # existing_checkpoint="../../trained_models/nope_coco_dv2_vits14_reg_ms.pth",
     model_type="base",
     # optim="SGD",
     # wrap_alibi=True,
-    # alibi_slope_type="learned",
-    batch_size=8,
+    # alibi_slope_type="constant",
+    batch_size=64,
+    n_epochs=50,
     lr=1e-3,
     save_per=1,
 )
@@ -321,6 +368,13 @@ match cfg.benchmark:
             base_path="../../Datasets/VOC",
             mode="val",
         )
+    case "VOC07":
+        train_ds = VOC_Dataset(
+            base_path="../../Datasets/VOC07/VOCdevkit/VOC2007", mode="train"
+        )
+        val_ds = VOC_Dataset(
+            base_path="../../Datasets/VOC07/VOCdevkit/VOC2007", mode="train"
+        )
     case "ADE20K":
         # train_ds = ADE20KDataset(
         #     base_path="/home/ab_aimd_anja_20884/Pawlowsky_Moritz/England/DINOMO/Dataset_/ADE20K",
@@ -341,6 +395,14 @@ match cfg.benchmark:
     case "m-cashew-plant":
         train_ds = GeoBenchDataset("m-cashew-plant", mode="train", size=IMG_L)
         val_ds = GeoBenchDataset("m-cashew-plant", mode="valid", size=IMG_L)
+    case "m-SA-crop-type":
+        train_ds = GeoBenchDataset("m-SA-crop-type", mode="train", size=IMG_L)
+        val_ds = GeoBenchDataset("m-SA-crop-type", mode="valid", size=IMG_L)
+    case "GF7":
+        train_ds = GF7(
+            "../../Datasets/GF-7 Building (3Bands)", mode="train", size=IMG_L
+        )
+        val_ds = GF7("../../Datasets/GF-7 Building (3Bands)", mode="val", size=IMG_L)
 
 print(f"Train dataset size: {len(train_ds)}")
 print(f"Validation dataset size: {len(val_ds)}")
@@ -350,7 +412,7 @@ train_dl = DataLoader(
     cfg.batch_size,
     True,
     drop_last=True,
-    # num_workers=4,
+    # num_workers=3,
     # pin_memory=True,
     # persistent_workers=True,
     # prefetch_factor=4,
@@ -360,7 +422,7 @@ val_dl = DataLoader(
     cfg.batch_size,
     False,
     drop_last=True,
-    # num_workers=4,
+    # num_workers=3,
     # pin_memory=True,
     # persistent_workers=True,
     # prefetch_factor=4,
@@ -408,6 +470,10 @@ match cfg.benchmark:
             ignore_index=255,
             average="macro",
         ).to(DEVICE)
+    case "VOC07":
+        mean_iou = MulticlassJaccardIndex(
+            num_classes=21, average="macro", ignore_index=255
+        ).to(DEVICE)
     case "ADE20K":
         mean_iou = MulticlassJaccardIndex(
             num_classes=150,
@@ -421,9 +487,14 @@ match cfg.benchmark:
         ).to(DEVICE)
     case "m-cashew-plant":
         mean_iou = MulticlassJaccardIndex(
-            num_classes=7,
-            average="macro",
+            num_classes=6, average="macro", ignore_index=-1
         ).to(DEVICE)
+    case "m-SA-crop-type":
+        mean_iou = MulticlassJaccardIndex(
+            num_classes=9, average="macro", ignore_index=-1
+        ).to(DEVICE)
+    case "GF7":
+        mean_iou = MulticlassJaccardIndex(num_classes=2, average="macro").to(DEVICE)
 
 
 # TODO:
