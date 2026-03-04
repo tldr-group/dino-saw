@@ -10,12 +10,33 @@ import matplotlib.pyplot as plt
 from dinosaw.utils import to_numpy, do_2D_pca
 
 
+def pascal_colormap():
+    cmap = torch.zeros(256, 3, dtype=torch.uint8)
+    for i in range(256):
+        r = g = b = 0
+        c = i
+        for j in range(8):
+            r |= ((c >> 0) & 1) << (7 - j)
+            g |= ((c >> 1) & 1) << (7 - j)
+            b |= ((c >> 2) & 1) << (7 - j)
+            c >>= 3
+        cmap[i] = torch.tensor([r, g, b], dtype=torch.uint8)
+    return cmap
+
+
+def colorize(pred_mask):  # pred_mask: (H,W) int
+    CMAP = pascal_colormap()
+    # returns (3,H,W)
+    rgb = CMAP[pred_mask]  # (H,W,3)
+    return rgb  # H,W,3
+
+
 def get_arrs_from_batch(
     img: torch.Tensor,
     lr_feats: torch.Tensor,
     pred_homog_feats: torch.Tensor | None,
 ) -> list[list[np.ndarray]]:
-    b, _, _, _ = lr_feats.shape
+    b, _, _, _ = img.shape
 
     arrs: list[list[np.ndarray]] = []
     for i in range(b):
@@ -28,7 +49,9 @@ def get_arrs_from_batch(
 
         out_2D_arrs: list[np.ndarray] = [img_arr]
         tensors = (
-            (lr_feat_tensor, pred_homog_tensor) if isinstance(pred_homog_feats, torch.Tensor) else (lr_feat_tensor)
+            (lr_feat_tensor, pred_homog_tensor)
+            if isinstance(pred_homog_feats, torch.Tensor)
+            else (lr_feat_tensor)
         )
         for i, d in enumerate(tensors):
             feat_arr = to_numpy(d)
@@ -48,9 +71,11 @@ def visualise(
     pred_homog_feats: torch.Tensor | None,
     out_path: str | None = None,
 ) -> Image.Image:
-    n_rows = 3 if isinstance(pred_homog_feats, torch.Tensor) else 2
+    n_rows = 3 if isinstance(pred_homog_feats, torch.Tensor) else 3
     img_unnormed = unnorm(img)
-    img_rgb = (img_unnormed - img_unnormed.min()) / (img_unnormed.max() - img_unnormed.min())
+    img_rgb = (img_unnormed - img_unnormed.min()) / (
+        img_unnormed.max() - img_unnormed.min()
+    )
     arrs = get_arrs_from_batch(
         img_rgb,
         lr_feats,
@@ -77,6 +102,89 @@ def visualise(
     return pil_img
 
 
+def get_seg_arrs_from_batch(
+    img: torch.Tensor,
+    mask: torch.Tensor,
+    pred_homog_feats: torch.Tensor | None,
+    is_NYU: bool = False,
+) -> list[list[np.ndarray]]:
+    b, _, _, _ = img.shape
+    arrs: list[list[np.ndarray]] = []
+    for i in range(b):
+        img_tensor, mask_tensor, pred_homog_tensor = (
+            img[i],
+            mask[i],
+            pred_homog_feats[i],
+        )
+        img_arr = to_numpy(img_tensor.permute((1, 2, 0)))
+
+        out_2D_arrs: list[np.ndarray] = [img_arr]
+        if is_NYU:
+            out_2D_arrs.append(to_numpy(mask_tensor).squeeze())
+        else:
+            out_2D_arrs.append(colorize(to_numpy(mask_tensor)))
+
+        if isinstance(pred_homog_tensor, torch.Tensor):
+            if is_NYU:
+                out_2D = to_numpy(pred_homog_tensor).argmax(axis=0).squeeze()
+            else:
+                out_2D = colorize(to_numpy(pred_homog_tensor).argmax(axis=0))
+            out_2D_arrs.append(out_2D)
+            if pred_homog_tensor.shape[0] > 2:
+                out_2D_arrs.append(
+                    do_2D_pca(to_numpy(pred_homog_tensor), 3, post_norm="minmax")
+                )
+            else:
+                if is_NYU:
+                    out_2D_arrs.append(
+                        pred_homog_tensor.argmax(dim=0).squeeze().cpu().numpy()
+                    )
+                else:
+                    out_2D_arrs.append(
+                        torch.argmax(pred_homog_tensor, dim=0).cpu().numpy()
+                    )
+
+        arrs.append(out_2D_arrs)
+    return arrs
+
+
+def visualise_segmentation(
+    img: torch.Tensor | Image.Image,
+    mask: torch.Tensor,
+    pred_feats: torch.Tensor | None,
+    out_path: str | None,
+    is_NYU: bool = False,
+):
+    n_rows = 4 if isinstance(pred_feats, torch.Tensor) else 3
+    img_unnormed = unnorm(img)
+    img_rgb = (img_unnormed - img_unnormed.min()) / (
+        img_unnormed.max() - img_unnormed.min()
+    )
+
+    arrs = get_seg_arrs_from_batch(img_rgb, mask, pred_feats, is_NYU)
+
+    fig, axs = plt.subplots(nrows=n_rows, ncols=len(arrs))
+    fig.set_size_inches(32, 4.4 / 3 * 4)
+    for i, arr in enumerate(arrs):
+        for j, sub_arr in enumerate(arr):
+            # print(f"{sub_arr.shape=}")
+            if len(arrs) == 1:
+                axs[j].imshow(sub_arr)
+                axs[j].set_axis_off()
+            else:
+                axs[j, i].imshow(sub_arr)
+                axs[j, i].set_axis_off()
+    plt.tight_layout()
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+    pil_img = Image.open(buf).convert("RGB")
+    if out_path:
+        pil_img.save(out_path)
+    return pil_img
+
+
 if __name__ == "__main__":
     from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
     from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper
@@ -85,7 +193,9 @@ if __name__ == "__main__":
     dv2 = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
     dv2 = dv2.eval()
 
-    ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "val", store_in_memory=False, norm_feats=True)
+    ds = HomogenizedEmbeddingDataset(
+        "data/IN_reduced_224", "val", store_in_memory=False, norm_feats=True
+    )
     dl = DataLoader(
         ds,
         32,
