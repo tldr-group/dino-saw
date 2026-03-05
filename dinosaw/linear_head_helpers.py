@@ -212,3 +212,4 @@ def plot_samples(benchmark: Benchmark, device: torch.device = "cpu"):
     axes[4][0].set_ylabel("ground truth", fontsize=30, weight=500)
 
     plt.subplots_adjust(wspace=0.01, hspace=0.01)
+    return fig
