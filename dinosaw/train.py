@@ -74,7 +74,7 @@ def get_model(
     n_epochs_warmup: int,
     freeze_abs_pos_emb: bool,
     zero_pos_emb: bool,
-    device: torch.device,
+    device: str | torch.device,
     existing_checkpoint: str | None = None,
     vit_model_type: str = MODEL_LIST[1],
     stride: int = 14,
@@ -83,7 +83,7 @@ def get_model(
     add_cls_token: bool = True,
     n_reg_tokens: int = 4,
     jitter_mag: float = 0.0,
-) -> nn.Module:
+) -> PretrainedViTWrapper:
     match model_type:
         case "base":
             model = PretrainedViTWrapper(
@@ -377,7 +377,7 @@ writer = SummaryWriter(EXPR_PATH)
 # writer.add_hparams(cfg.__dict__, {})
 writer.add_text("desc", cfg.experiment_name)
 
-DEVICE = "cuda:1"
+DEVICE: str = "cuda:1"
 
 
 train_ds, val_ds = get_ds(cfg, DEVICE)
@@ -447,8 +447,7 @@ for epoch in range(cfg.n_epochs):
 
     train_loss /= len(train_dl)
     val_loss = 0.0
-    batch: torch.Tensor
-    # for batch in [next(iter(val_dl))][:1]:
+
     for j, batch in enumerate(val_dl):
         loss = feed_batch_get_loss(
             model, optimizer, loss_fn, batch, training=False, device=DEVICE, dataset_type=cfg.ds_type
