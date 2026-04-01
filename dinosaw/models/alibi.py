@@ -20,7 +20,6 @@ def get_distance_matrix(
     device: str = "cpu",
     dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
-    # TODO: is this (H,W) or (W,H) - and which is right?
     coords = torch.stack(
         torch.meshgrid(
             torch.arange(n_tokens_h, device=device),
@@ -100,8 +99,6 @@ class DistanceMatrixWrapper(nn.Module):
         self.normalize = normalize
         self.wrap = wrap
         self.add_cls = add_cls
-
-        # self.matrix: torch.Tensor | None = None
 
         self.update(
             n_tokens_h,
@@ -202,8 +199,6 @@ class AlibiAttention(Attention):
         self.jitter_mag = jitter_mag
         self.set_alibi_slope(slope_type)
 
-        # self.is_enabled = True
-
     def set_alibi_slope(self, slope_type: AlibiSlopeType):
         m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
 
@@ -222,12 +217,6 @@ class AlibiAttention(Attention):
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
 
-        # conditionally apply alibi bias
-        # bias = (
-        #     (self.m * self.distance_matrix.data)
-        #     if self.is_enabled
-        #     else torch.zeros_like(self.distance_matrix.data, requires_grad=False)
-        # )
         bias = self.m * self.distance_matrix.matrix
         bias = bias.unsqueeze(0)
 
