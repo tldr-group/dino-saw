@@ -161,17 +161,23 @@ def hide_axes(ax: plt.Axes):
         ax.set_zticks([])
 
 
-def plot_samples(benchmark: Benchmark, device: torch.device = "cpu"):
+def plot_samples(
+    benchmark: Benchmark, num_samples=5, device: torch.device = "cpu", fs=30
+):
     ds = get_val_ds(benchmark)
     Dv2 = get_lin_model("Dv2", benchmark, device)
     NoPE = get_lin_model("NoPE", benchmark, device)
     ALiBi = get_lin_model("ALiBi", benchmark, device)
-    sample_indices = [int(rand) for rand in np.random.random(5) * (len(ds) - 1)]
+    sample_indices = [
+        int(rand) for rand in np.random.random(num_samples) * (len(ds) - 1)
+    ]
 
     print(sample_indices)
 
     fig, axes = plt.subplots(
-        5, ncols=len(sample_indices), figsize=(5 * 5, len(sample_indices) * 5)
+        5,
+        ncols=len(sample_indices),
+        figsize=(num_samples * 5, len(sample_indices) * 5),
     )
 
     for idx, sample_index in enumerate(sample_indices):
@@ -206,10 +212,10 @@ def plot_samples(benchmark: Benchmark, device: torch.device = "cpu"):
         hide_axes(ax)
 
     # axes[0][0].set_ylabel("input", fontsize=30, weight=500)
-    axes[1][0].set_ylabel("DINOv2", fontsize=30, weight=500)
-    axes[2][0].set_ylabel("NoPE", fontsize=30, weight=500)
-    axes[3][0].set_ylabel("ALiBi", fontsize=30, weight=700)
-    axes[4][0].set_ylabel("ground truth", fontsize=30, weight=500)
+    axes[1][0].set_ylabel("DINOv2", fontsize=fs, weight=500)
+    axes[2][0].set_ylabel("NoPE", fontsize=fs, weight=500)
+    axes[3][0].set_ylabel("ALiBi", fontsize=fs, weight=700)
+    axes[4][0].set_ylabel("ground\ntruth", fontsize=fs, weight=500)
 
-    plt.subplots_adjust(wspace=0.01, hspace=0.01)
+    plt.subplots_adjust(wspace=0.01, hspace=0.01, left=0.1)
     return fig

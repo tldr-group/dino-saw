@@ -4,10 +4,10 @@ import numpy as np
 from PIL import Image
 
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
-from dinosaw.comaprisons.denoising_vits import DenoisingViTWrapper
+from dinosaw.models.denoising_vits import DenoisingViTWrapper
 from dinosaw.utils import to_numpy, closest_resize, convert_image
 
-from typing import Literal, get_args
+from typing import Literal, cast, get_args
 
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
@@ -148,6 +148,7 @@ def get_model(
         return None
 
     if model_type in timm_models:
+        model_type = cast(TimmModels, model_type)
         model_id = model_name_to_timm[model_type]
         model_chk = model_chkpoints[model_type] if "dv3" in model_type else None
         S = 16 if "patch16" in model_id else 14

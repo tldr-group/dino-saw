@@ -111,7 +111,7 @@ class PretrainedViTWrapper(nn.Module):
         add_flash_attn: bool = True,
         dynamic_img_size: bool = True,
         dynamic_img_pad: bool = False,
-        device: str = "cpu",
+        device: str | torch.device = "cpu",
         pretrained: bool = True,
         **kwargs,
     ):
@@ -288,7 +288,7 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         add_flash_attn: bool = True,
         dynamic_img_size: bool = True,
         dynamic_img_pad: bool = False,
-        device: str = "cpu",
+        device: str | torch.device = "cpu",
         slope_type: AlibiSlopeType = "constant",
         n_reg_tokens: int = 4,
         metric: str = "euclidean",
@@ -340,10 +340,6 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         self.distance_matrix = distance_matrix
         # self.model.pos_embed.requires_grad = False  # freeze pos embedding
         self.slope_type = slope_type
-
-        # for blk in self.model.blocks:
-        #     blk: AlibiBlock
-        #     blk.attn.set_alibi_slope(slope_type=self.slope_type)
 
     def set_alibi_enabled(self, enabled: bool):
         return
