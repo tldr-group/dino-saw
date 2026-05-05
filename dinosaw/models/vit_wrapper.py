@@ -56,6 +56,7 @@ MODEL_LIST = [
     "deit3_small_patch16_224.fb_in1k",
     "tiny_vit_5m_224.dist_in22k_ft_in1k",
     "vit_base_patch16_224.dino",
+    "dinov3_vitb_patch16_reg4",
 ]
 MODEL_MAP: dict[FeatureType, str] = {
     "FEATUP": MODEL_LIST[2],
@@ -174,10 +175,11 @@ class PretrainedViTWrapper(nn.Module):
 
         is_dv3 = "dinov3" in model_identifier
         if is_dv3:
+            dv3_type = "dinov3_vits16plus" if "plus" in model_identifier else "dinov3_vitb16"
             path = kwargs["chk_path"]
             conf_path = kwargs["conf_path"]
             assert path is not None
-            model = torch.hub.load(conf_path, "dinov3_vits16plus", source="local", weights=path)
+            model = torch.hub.load(conf_path, dv3_type, source="local", weights=path)
             return model, None
 
         if "sam" in model_identifier or "conv" in model_identifier:
