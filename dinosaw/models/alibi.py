@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from timm.layers.mlp import Mlp
 from timm.models.vision_transformer import Block, Attention
+from dinov3.layers.attention import SelfAttention as DV3SelfAttention
 
 
 from typing import Type, Literal, Optional
@@ -162,6 +163,122 @@ class DistanceMatrixWrapper(nn.Module):
         self.n_tokens_w = n_tokens_w
 
         self.register_buffer("matrix", distance_matrix, persistent=False)
+
+
+class AlibiSelfAttention(DV3SelfAttention):
+    """ALiBi-style attention compatible with DINOv3's SelfAttention implementation.
+
+    This wraps the original DV3 `SelfAttention` but injects an ALiBi bias
+    computed from a `DistanceMatrixWrapper`.
+    """
+
+    def __init__(
+        self,
+        *args,
+        distance_matrix: DistanceMatrixWrapper | None = None,
+        slope_type: AlibiSlopeType = "constant",
+        jitter_mag: float = 0.0,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
+        if isinstance(m, torch.nn.Parameter):
+            self.register_parameter("m", m)
+        else:
+            self.register_buffer("m", m, persistent=False)
+
+        self.distance_matrix = distance_matrix
+        self.jitter_mag = jitter_mag
+
+    def compute_attention(self, qkv: torch.Tensor, attn_bias=None, rope=None) -> torch.Tensor:
+        B, N, _ = qkv.shape
+        C = self.qkv.in_features
+
+        qkv = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads)
+        q, k, v = torch.unbind(qkv, 2)
+        q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
+        if rope is not None:
+            q, k = self.apply_rope(q, k, rope)
+
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)
+
+        if self.distance_matrix is not None:
+            bias = self.m * self.distance_matrix.matrix
+            bias = bias.unsqueeze(0)
+
+            attn = attn + bias.to(attn.dtype)
+
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        x = attn @ v
+        x = x.transpose(1, 2)
+        return x.reshape([B, N, C])
+
+
+def convert_dv3_model(
+    model,
+    slope_type: AlibiSlopeType = "constant",
+    jitter_mag: float = 0.0,
+    n_tokens_h: int = 16,
+    n_tokens_w: int = 16,
+    distance_matrix: DistanceMatrixWrapper | None = None,
+):
+    """Disable RoPE on a DinoV3 model and replace its attention blocks with ALiBi attention.
+
+    Returns the modified model (in-place).
+    """
+    try:
+        model.rope_embed = None
+    except Exception:
+        model.rope_embed = None
+
+    # use provided distance_matrix if supplied, otherwise create one
+    if distance_matrix is None:
+        n_reg = getattr(model, "n_storage_tokens", 0)
+        dm = DistanceMatrixWrapper(n_tokens_h, n_tokens_w, n_reg_tokens=n_reg, wrap=True, add_cls=True)
+    else:
+        dm = distance_matrix
+        # ensure dm has the requested token grid
+        try:
+            dm.update(n_tokens_h, n_tokens_w)
+        except Exception:
+            pass
+    model.distance_matrix = dm
+
+    for blk in model.blocks:
+        old_attn = blk.attn
+        new_attn = AlibiSelfAttention(
+            dim=old_attn.qkv.in_features,
+            num_heads=old_attn.num_heads,
+            qkv_bias=(old_attn.qkv.bias is not None),
+            proj_bias=True,
+            attn_drop=0.0,
+            proj_drop=0.0,
+            mask_k_bias=hasattr(old_attn.qkv, "bias_mask"),
+            device=old_attn.qkv.weight.device,
+            distance_matrix=model.distance_matrix,
+            slope_type=slope_type,
+            jitter_mag=jitter_mag,
+        )
+
+        try:
+            new_attn.qkv.load_state_dict(old_attn.qkv.state_dict())
+        except Exception:
+            pass
+        try:
+            new_attn.proj.load_state_dict(old_attn.proj.state_dict())
+        except Exception:
+            pass
+
+        if hasattr(old_attn, "attn_drop"):
+            new_attn.attn_drop = old_attn.attn_drop
+        if hasattr(old_attn, "proj_drop"):
+            new_attn.proj_drop = old_attn.proj_drop
+
+        blk.attn = new_attn
+
+    return model
 
 
 class AlibiAttention(Attention):

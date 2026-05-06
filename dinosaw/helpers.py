@@ -42,6 +42,7 @@ ModelTypes = Literal[
     "deit",
     "vit_t_in",
     "classical",
+    "eupe_s",
 ]
 TimmModels = Literal[
     "dv2",
@@ -106,7 +107,8 @@ model_chkpoints: dict[ModelTypes, str] = {
     "nope": "nope_coco_dv2_vits14_reg_ms.pth",
     "dv": "",
     "dv_b": "",
-    "dv3": "dinov3_vits_patch16_plus_reg4.pth",
+    # "dv3": "dinov3_vits_patch16_plus_reg4.pth",
+    "dv3": "",
     "dv3_b": "dinov3_vitb_patch16_reg4.pth",
     "vit_b": "",
     "clip_b": "",
@@ -137,6 +139,15 @@ model_name_to_timm: dict[TimmModels, str] = {
 }
 
 
+def _get_stride(model_type: ModelTypes, model_id: str) -> int:
+    if "patch16" in model_id.lower():
+        return 16
+    if "dv3" in model_type.lower():
+        return 16
+    else:
+        return 14
+
+
 def get_model(
     model_type: ModelTypes,
     model_dir: str,
@@ -147,7 +158,8 @@ def get_model(
 ) -> PretrainedViTWrapper:
     S = 14
     model: PretrainedViTWrapper | None = None
-    conf_path = conf_path if "dv3" in model_type else None
+    is_extern = "dv3" in model_type
+    conf_path = conf_path if is_extern else None
 
     if model_type == "classical":
         return None
@@ -157,7 +169,7 @@ def get_model(
         model_type = cast(TimmModels, model_type)
         model_id = model_name_to_timm[model_type]
         model_chk = model_chkpoints[model_type] if "dv3" in model_type else None
-        S = 16 if "patch16" in model_id else 14
+        S = _get_stride(model_type, model_id)
         model = DebiasedViTWrapper(
             model_id,
             stride=S,
@@ -174,8 +186,9 @@ def get_model(
     if model_type in timm_models:
         model_type = cast(TimmModels, model_type)
         model_id = model_name_to_timm[model_type]
-        model_chk = model_chkpoints[model_type] if "dv3" in model_type else None
-        S = 16 if "patch16" in model_id else 14
+
+        model_chk = model_chkpoints[model_type] if is_extern else None
+        S = _get_stride(model_type, model_id)
         model = PretrainedViTWrapper(
             model_id,
             stride=S,
