@@ -80,7 +80,7 @@ def get_model(regressor: Regressor) -> LinearRegression | Ridge | MLPRegressor:
         return Ridge()
     else:
         return MLPRegressor(
-            hidden_layer_sizes=(10, 10, 10), max_iter=500, learning_rate_init=0.01, validation_fraction=0
+            hidden_layer_sizes=(10, 10, 10), max_iter=1_000, learning_rate_init=0.01, validation_fraction=0
         )
 
 
