@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 
 from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
+from dinosaw.models.simple_debias import DebiasedViTWrapper
 from dinosaw.models.denoising_vits import DenoisingViTWrapper
 from dinosaw.utils import to_numpy, closest_resize, convert_image
 
@@ -17,6 +18,7 @@ ModelTypes = Literal[
     "dv2",
     "dv2_b",
     "dv2_cb",
+    "dv2_db",
     "dvt",
     "alibi_dv2",
     "alibi_dv2_h",
@@ -45,6 +47,7 @@ TimmModels = Literal[
     "dv2",
     "dv2_b",
     "dv2_cb",
+    "dv2_db",
     "dv",
     "dv_b",
     "dv3",
@@ -63,6 +66,7 @@ model_types: tuple[ModelTypes] = get_args(ModelTypes)
 model_names: dict[ModelTypes, str] = {
     "dv2": "DINOv2",
     "dv2_b": "DINOv2-B",
+    "dv2_db": "DINOv2(DB)",
     "dvt": "DVT",
     "alibi_dv2": "ALiBi-Dv2",
     "alibi_dv2_h": "ALiBi(H)-Dv2",
@@ -129,6 +133,7 @@ model_name_to_timm: dict[TimmModels, str] = {
     "deit": MODEL_LIST[12],
     "vit_t_in": MODEL_LIST[13],
     "dv2_cb": MODEL_LIST[1],
+    "dv2_db": MODEL_LIST[1],
 }
 
 
@@ -146,6 +151,25 @@ def get_model(
 
     if model_type == "classical":
         return None
+
+    if "_db" in model_type:
+        print("debiased?")
+        model_type = cast(TimmModels, model_type)
+        model_id = model_name_to_timm[model_type]
+        model_chk = model_chkpoints[model_type] if "dv3" in model_type else None
+        S = 16 if "patch16" in model_id else 14
+        model = DebiasedViTWrapper(
+            model_id,
+            stride=S,
+            add_flash_attn=False,
+            device=device,
+            chk_path=model_chk,
+            conf_path=conf_path,
+        )
+        model = model.eval()
+        if to_half:
+            model = model.half()
+        return model
 
     if model_type in timm_models:
         model_type = cast(TimmModels, model_type)
