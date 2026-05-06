@@ -14,7 +14,7 @@ from timm.data import create_transform, resolve_data_config
 from timm.models.vision_transformer import VisionTransformer, Attention, Block
 
 
-from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType, DistanceMatrixWrapper
+from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType, DistanceMatrixWrapper, convert_dv3_model
 
 import re
 from typing import cast, Callable, Literal
@@ -44,7 +44,7 @@ MODEL_LIST = [
     "vit_base_patch14_reg4_dinov2.lvd142m",
     # DINOv3
     # "vit_small_plus_patch16_dinov3.lvd1689m",
-    "dinov3_vits_patch16_plus_reg4",
+    "vit_small_patch16_dinov3.lvd1689m",
     "vit_small_patch16_224.dino",
     "vit_base_patch16_224.mae",
     "vit_base_patch16_clip_224.openai",
@@ -57,6 +57,7 @@ MODEL_LIST = [
     "tiny_vit_5m_224.dist_in22k_ft_in1k",
     "vit_base_patch16_224.dino",
     "dinov3_vitb_patch16_reg4",
+    "EUPE-ViT-S.pt",
 ]
 MODEL_MAP: dict[FeatureType, str] = {
     "FEATUP": MODEL_LIST[2],
@@ -175,7 +176,7 @@ class PretrainedViTWrapper(nn.Module):
 
         is_dv3 = "dinov3" in model_identifier
         if is_dv3:
-            dv3_type = "dinov3_vits16plus" if "plus" in model_identifier else "dinov3_vitb16"
+            dv3_type = "dinov3_vits16plus" if "small" in model_identifier else "dinov3_vitb16"
             path = kwargs["chk_path"]
             conf_path = kwargs["conf_path"]
             assert path is not None
@@ -349,7 +350,7 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         return self.model(x)
 
     def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False, **kwargs) -> torch.Tensor:
-        assert self.model.pos_embed is not None
+        # assert self.model.pos_embed is not None
         b, _, h, w = x.shape
         p = self.patch_size
         s = self.stride
@@ -402,8 +403,41 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         return feats
 
 
-if __name__ == "__main__":
-    dv2 = AlibiVitWrapper("fit3D_vit_small_patch14_reg4_dinov2.lvd142m", add_flash_attn=False)
-    x = torch.zeros((1, 3, 14 * 4, 14 * 4))
-    o = dv2.forward_features(x, True, False, abs_pos_enc_drop_prob=0.5)
-    print(o.shape)
+class AlibiDV3Wrapper(AlibiVitWrapper):
+    def __init__(
+        self,
+        model_identifier: str = "vit_small_patch16_dinov3.lvd1689m",
+        stride: int = 14,
+        add_flash_attn: bool = True,
+        device: str | torch.device = "cpu",
+        slope_type: AlibiSlopeType = "constant",
+        n_reg_tokens: int = 4,
+        metric: str = "euclidean",
+        normalize: bool = True,
+        wrap: bool = True,
+        add_cls: bool = True,
+        jitter_mag: float = 0.0,
+        skip_overwrite: bool = False,
+        **kwargs,
+    ):
+        super().__init__(
+            model_identifier=model_identifier,
+            stride=stride,
+            add_flash_attn=add_flash_attn,
+            dynamic_img_size=False,  # not supported for Dv3
+            dynamic_img_pad=False,  # not supported for Dv3
+            device=device,
+            slope_type=slope_type,
+            n_reg_tokens=n_reg_tokens,
+            metric=metric,
+            normalize=normalize,
+            wrap=wrap,
+            add_cls=add_cls,
+            jitter_mag=jitter_mag,
+            **kwargs,
+        )
+
+        if not skip_overwrite:
+            self.model = convert_dv3_model(
+                self.model, slope_type=slope_type, n_tokens_h=14, n_tokens_w=14, distance_matrix=self.distance_matrix
+            )
