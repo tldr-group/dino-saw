@@ -342,6 +342,8 @@ class AlibiVitWrapper(PretrainedViTWrapper):
         # self.model.pos_embed.requires_grad = False  # freeze pos embedding
         self.slope_type = slope_type
 
+        self.to(device)
+
     def set_alibi_enabled(self, enabled: bool):
         return
 
