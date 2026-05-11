@@ -14,7 +14,13 @@ from timm.data import create_transform, resolve_data_config
 from timm.models.vision_transformer import VisionTransformer, Attention, Block
 
 
-from dinosaw.models.alibi import AlibiBlock, AlibiSlopeType, DistanceMatrixWrapper, convert_dv3_model
+from dinosaw.models.alibi import (
+    AlibiBlock,
+    AlibiSlopeType,
+    DistanceMatrixWrapper,
+    convert_dv3_model,
+    build_2d_sincos_pos_embed,
+)
 
 import re
 from typing import cast, Callable, Literal
@@ -114,6 +120,7 @@ class PretrainedViTWrapper(nn.Module):
         dynamic_img_pad: bool = False,
         device: str | torch.device = "cpu",
         pretrained: bool = True,
+        replace_pe_with_sincos: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -151,6 +158,30 @@ class PretrainedViTWrapper(nn.Module):
         if add_flash_attn:
             self.model = self.model.half()
             self.model = add_flash_attention(self.model)
+
+        if replace_pe_with_sincos:
+            old_pos_embed = self.model.pos_embed
+            if old_pos_embed is None:
+                raise Exception("Model has no absolute position embedding to replace.")
+            _, _, embed_dim = old_pos_embed.shape
+
+            H, W = 224, 224
+
+            new_pos_embed = build_2d_sincos_pos_embed(
+                H // self.stride, W // self.stride, embed_dim, torch.float32, device
+            )
+            new_pos_embed *= old_pos_embed.std() / new_pos_embed.std()
+            # new_pos_embed = (
+            #     torch.arange(16 * 16, dtype=old_pos_embed.dtype, device=old_pos_embed.device)
+            #     .unsqueeze(0)
+            #     .unsqueeze(-1)
+            #     .expand(-1, -1, embed_dim)
+            # )
+            # print("replacing absolute pos embed with rasterized version")
+            print(new_pos_embed.shape)
+
+            self.model.set_input_size((224, 224), (14, 14))
+            self.model.pos_embed = nn.Parameter(new_pos_embed, requires_grad=False)
 
         self.to(device)
 

@@ -10,6 +10,46 @@ from dinov3.layers.attention import SelfAttention as DV3SelfAttention
 from typing import Type, Literal, Optional
 
 
+def build_2d_sincos_pos_embed(
+    h: int,
+    w: int,
+    embed_dim: int,
+    dtype,
+    device,
+    base_wavelength: int = 10_000,
+) -> torch.Tensor:
+    """
+    Returns:
+        (1, h*w, embed_dim)
+    """
+
+    assert embed_dim % 4 == 0, "embed_dim must be divisible by 4"
+
+    # grid of patch coordinates
+    grid_h = torch.arange(h, dtype=dtype, device=device)
+    grid_w = torch.arange(w, dtype=dtype, device=device)
+
+    y, x = torch.meshgrid(grid_h, grid_w, indexing="ij")
+
+    y = y.reshape(-1)  # (H*W,)
+    x = x.reshape(-1)
+
+    dim_quarter = embed_dim // 4
+
+    omega = torch.arange(dim_quarter, dtype=dtype, device=device)
+    omega = 1.0 / (base_wavelength ** (omega / dim_quarter))
+
+    out_y = y[:, None] * omega[None, :]
+    out_x = x[:, None] * omega[None, :]
+
+    emb_y = torch.cat([torch.sin(out_y), torch.cos(out_y)], dim=1)
+    emb_x = torch.cat([torch.sin(out_x), torch.cos(out_x)], dim=1)
+
+    pos_embed = torch.cat([emb_y, emb_x], dim=1)
+
+    return pos_embed.unsqueeze(0)
+
+
 def get_distance_matrix(
     n_tokens_h: int,
     n_tokens_w: int,
