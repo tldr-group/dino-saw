@@ -21,7 +21,7 @@ from typing import Literal
 
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
-ModelType = Literal["base", "plus_alibi", "nope"]
+ModelType = Literal["base", "plus_alibi", "nope", "plus_sincos"]
 DatasetType = Literal["joint", "direct", "otf_coco"]
 
 
@@ -127,6 +127,16 @@ def get_model(
                 add_cls=add_cls_token,
                 jitter_mag=jitter_mag,
                 conf_path="dinov3",
+            )
+        case "plus_sincos":
+            model = PretrainedViTWrapper(
+                vit_model_type,
+                stride=stride,
+                add_flash_attn=False,
+                device=device,
+                chk_path=chk_path,
+                pretrained=pretrained,
+                replace_pe_with_sincos=True,
             )
         case "nope":
             model = PretrainedViTWrapper(
@@ -337,10 +347,42 @@ SEED = 1025
 N_VIS = 32
 seed_everything(SEED)
 
-# IMG_L = 224
+IMG_L = 224
+CACHE = False
+cfg = Config(
+    experiment_name="dv2_raster_fixed",
+    ds_type="otf_coco",
+    ds_path="../JAFAR/data/COCOStuff/dataset/images",
+    img_l=IMG_L,
+    model_type="plus_sincos",
+    vit_model_type=MODEL_LIST[1],
+    stride=14,
+    zero_pos_emb=False,
+    freeze_pos_emb=True,
+    alibi_slope_type="constant",
+    norm_alibi=True,
+    wrap_alibi=True,
+    jitter_mag=0.0,
+    n_epochs=15,
+    batch_size=256,
+    # channels_to_blank=[47, 113, 117, 359],
+    channel_dup=False,
+    do_random_roll=False,
+    loss_type="cosine",
+    n_epochs_warmup=-1,
+    lr=1e-4,
+    pretrained=True,
+    add_cls_token=True,
+    n_reg_tokens=4,
+    save_per=1,
+    # dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
+    # existing_checkpoint="experiments/20260127_1554/best_model.pth",
+)
+# Multiscale training config
+# IMG_L = 518
 # CACHE = False
 # cfg = Config(
-#     experiment_name="dv3_coco",
+#     experiment_name="dv3_coco_quarter_ms",
 #     ds_type="otf_coco",
 #     ds_path="../JAFAR/data/COCOStuff/dataset/images",
 #     img_l=IMG_L,
@@ -352,53 +394,21 @@ seed_everything(SEED)
 #     alibi_slope_type="constant",
 #     norm_alibi=True,
 #     wrap_alibi=True,
-#     jitter_mag=0.0,
-#     n_epochs=15,
-#     batch_size=256,
+#     jitter_mag=0.00,
+#     n_epochs=1,
+#     batch_size=32,
+#     pretrained=True,
 #     # channels_to_blank=[47, 113, 117, 359],
-#     channel_dup=False,
 #     do_random_roll=False,
 #     loss_type="cosine",
 #     n_epochs_warmup=-1,
-#     lr=1e-4,
-#     pretrained=True,
+#     lr=1e-5,
 #     add_cls_token=True,
 #     n_reg_tokens=4,
-#     save_per=1,
 #     dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
-#     # existing_checkpoint="experiments/20260127_1554/best_model.pth",
+#     existing_checkpoint="experiments/current/20260506_2004_dv3_coco/e3.pth",
+#     save_per=1,
 # )
-# Multiscale training config
-IMG_L = 518
-CACHE = False
-cfg = Config(
-    experiment_name="dv3_coco_quarter_ms",
-    ds_type="otf_coco",
-    ds_path="../JAFAR/data/COCOStuff/dataset/images",
-    img_l=IMG_L,
-    model_type="plus_alibi",
-    vit_model_type=MODEL_LIST[4],
-    stride=16,
-    zero_pos_emb=True,
-    freeze_pos_emb=True,
-    alibi_slope_type="constant",
-    norm_alibi=True,
-    wrap_alibi=True,
-    jitter_mag=0.00,
-    n_epochs=1,
-    batch_size=32,
-    pretrained=True,
-    # channels_to_blank=[47, 113, 117, 359],
-    do_random_roll=False,
-    loss_type="cosine",
-    n_epochs_warmup=-1,
-    lr=1e-5,
-    add_cls_token=True,
-    n_reg_tokens=4,
-    dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
-    existing_checkpoint="experiments/current/20260506_2004_dv3_coco/e3.pth",
-    save_per=1,
-)
 print(cfg)
 
 EXPR_PATH = f"experiments/current/{datetime.now().strftime('%Y%m%d_%H%M')}_{cfg.experiment_name}"
@@ -476,12 +486,12 @@ for epoch in range(cfg.n_epochs):
         loss = feed_batch_get_loss(
             model, optimizer, loss_fn, batch, training=True, device=DEVICE, dataset_type=cfg.ds_type
         )
+
         train_loss += loss
         if i % 50 == 0:
             print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
 
         # if i == N_batches // 4:
-        #     print("Skipping rest of epoch for testing purposes")
         #     break
 
     train_loss /= len(train_dl)

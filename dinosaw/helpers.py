@@ -20,6 +20,7 @@ ModelTypes = Literal[
     "dv2_cb",
     "dv2_db",
     "dvt",
+    "sinusoid_dv2",
     "alibi_dv2",
     "alibi_dv2_h",
     "alibi_dv2_cb",
@@ -70,6 +71,7 @@ model_names: dict[ModelTypes, str] = {
     "dv2_b": "DINOv2-B",
     "dv2_db": "DINOv2(DB)",
     "dvt": "DVT",
+    "sinusoid_dv2": "Sinusoid",
     "alibi_dv2": "ALiBi-Dv2",
     "alibi_dv2_h": "ALiBi(H)-Dv2",
     "alibi_dv2_cb": "ALiBi(CB)-Dv2",
@@ -98,6 +100,7 @@ model_chkpoints: dict[ModelTypes, str] = {
     "dv2": "",
     "dv2_b": "",
     "dvt": "dvt.pth",
+    "sinusoid_dv2": "e2.pth",
     "alibi_dv2": "alibi_dv2_vits14_reg.pth",
     "alibi_dv2_h": "alibi_homog_dv2_vits14_reg.pth",
     "alibi_dv2_cb": "alibi_cb_dv2_vits14_reg.pth",
@@ -264,6 +267,17 @@ def get_model(
             skip_overwrite=False,
         )
         model.load_state_dict(weights)
+    elif model_type == "sinusoid_dv2":
+        model = PretrainedViTWrapper(
+            MODEL_LIST[1],
+            stride=S,
+            add_flash_attn=False,
+            device=device,
+            conf_path=conf_path,
+            replace_pe_with_sincos=True,
+        )
+        model.load_state_dict(weights)
+
     else:
         raise Exception("Invalid model type")
 
