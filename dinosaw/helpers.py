@@ -25,10 +25,12 @@ ModelTypes = Literal[
     "alibi_dv2_cb_nr_l",
     "alibi_dv2_cb_l_j",
     "alibi_dv2_coco",
+    "alibi_dv2_coco_e1",
     "nope",
     "dv",
     "dv_b",
     "dv3",
+    "dv3_b",
     "vit_b",
     "clip_b",
     "eva02_b",
@@ -37,6 +39,7 @@ ModelTypes = Literal[
     "vit_b_in",
     "deit",
     "vit_t_in",
+    "classical",
 ]
 TimmModels = Literal[
     "dv2",
@@ -45,6 +48,7 @@ TimmModels = Literal[
     "dv",
     "dv_b",
     "dv3",
+    "dv3_b",
     "vit_b",
     "clip_b",
     "eva02_b",
@@ -67,10 +71,12 @@ model_names: dict[ModelTypes, str] = {
     "alibi_dv2_cb_nr_l": "ALiBi(CB-NR-L)-Dv2",
     "alibi_dv2_cb_l_j": "ALiBi(CB-L-J)-Dv2",
     "alibi_dv2_coco": "ALiBi(COCO)-Dv2",
+    "alibi_dv2_coco_e1": "ALiBi(COCO)-Dv2-e1",
     "nope": "NoPE",
     "dv": "DINO",
     "dv_b": "DINO-B",
     "dv3": "DINOv3",
+    "dv3_b": "DINOv3-B",
     "clip_b": "CLIP-B",
     "eva02_b": "EVA02-B",
     "sam_b": "SAM-B",
@@ -79,6 +85,7 @@ model_names: dict[ModelTypes, str] = {
     "vit_b_in": "ViT-B-INet",
     "deit": "",
     "vit_t_in": "",
+    "classical": "Classical",
 }
 model_chkpoints: dict[ModelTypes, str] = {
     "dv2": "",
@@ -91,10 +98,12 @@ model_chkpoints: dict[ModelTypes, str] = {
     "alibi_dv2_cb_nr_l": "alibi_cb_dv2_vits14_noreg.pth",
     "alibi_dv2_cb_l_j": "alibi_cb_dv2_vits14_j_ms.pth",
     "alibi_dv2_coco": "alibi_coco_dv2_vits14_reg_ms.pth",
-    "nope": "nope_dv2_vits14_reg.pth",
+    "alibi_dv2_coco_e1": "alibi_coco_dv2_vits14_reg_ms_e1.pth",
+    "nope": "nope_coco_dv2_vits14_reg_ms.pth",
     "dv": "",
     "dv_b": "",
     "dv3": "dinov3_vits_patch16_plus_reg4.pth",
+    "dv3_b": "dinov3_vitb_patch16_reg4.pth",
     "vit_b": "",
     "clip_b": "",
     "eva02_b": "",
@@ -110,6 +119,7 @@ model_name_to_timm: dict[TimmModels, str] = {
     "dv": MODEL_LIST[5],
     "dv_b": MODEL_LIST[14],
     "dv3": MODEL_LIST[4],
+    "dv3_b": MODEL_LIST[15],
     "vit_b": MODEL_LIST[6],
     "clip_b": MODEL_LIST[7],
     "eva02_b": MODEL_LIST[8],
@@ -134,10 +144,13 @@ def get_model(
     model: PretrainedViTWrapper | None = None
     conf_path = conf_path if "dv3" in model_type else None
 
+    if model_type == "classical":
+        return None
+
     if model_type in timm_models:
         model_type = cast(TimmModels, model_type)
         model_id = model_name_to_timm[model_type]
-        model_chk = model_chkpoints[model_type] if model_type == "dv3" else None
+        model_chk = model_chkpoints[model_type] if "dv3" in model_type else None
         S = 16 if "patch16" in model_id else 14
         model = PretrainedViTWrapper(
             model_id,
