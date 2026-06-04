@@ -19,6 +19,7 @@ ModelTypes = Literal[
     "dv2_b",
     "dv2_cb",
     "dv2_db",
+    "dv2_tr",
     "dvt",
     "sinusoid_dv2",
     "alibi_dv2",
@@ -51,6 +52,7 @@ TimmModels = Literal[
     "dv2_b",
     "dv2_cb",
     "dv2_db",
+    "dv2_tr",
     "dv",
     "dv_b",
     "dv3",
@@ -70,6 +72,7 @@ model_names: dict[ModelTypes, str] = {
     "dv2": "DINOv2",
     "dv2_b": "DINOv2-B",
     "dv2_db": "DINOv2(DB)",
+    "dv2_tr": "DINOv2(Tr)",
     "dvt": "DVT",
     "sinusoid_dv2": "Sinusoid",
     "alibi_dv2": "ALiBi-Dv2",
@@ -142,6 +145,7 @@ model_name_to_timm: dict[TimmModels, str] = {
     "vit_t_in": MODEL_LIST[13],
     "dv2_cb": MODEL_LIST[1],
     "dv2_db": MODEL_LIST[1],
+    "dv2_tr": MODEL_LIST[1],
 }
 
 
@@ -310,11 +314,24 @@ def get_features(
     to_half: bool = False,
     device: str = "cuda:0",
     S: int = 14,
+    avg_over_trs: bool = False,
 ) -> np.ndarray:
     tr = closest_resize(pil_img.height, pil_img.width, model.stride)
     img_tensor = convert_image(pil_img, tr, device_str=device, to_half=to_half)
     with torch.no_grad():
         emb = model.forward_features(img_tensor, make_2D=True)
+
+    if avg_over_trs:
+        img_flip_lr = torch.flip(img_tensor, dims=[3])
+        img_flip_ud = torch.flip(img_tensor, dims=[2])
+        emb_lr = model.forward_features(img_flip_lr, make_2D=True)
+        emb_ud = model.forward_features(img_flip_ud, make_2D=True)
+
+        emb_lr_inv = torch.flip(emb_lr, dims=[3])
+        emb_ud_inv = torch.flip(emb_ud, dims=[2])
+
+        emb = (emb + emb_lr_inv + emb_ud_inv) / 3
+
     emb_np = to_numpy(emb.squeeze(0))
     if channel_blank:
         channels_to_blank = [47, 113, 117, 359]
