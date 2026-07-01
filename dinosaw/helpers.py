@@ -198,6 +198,8 @@ def get_model(
         model_id = model_name_to_timm[model_type]
 
         model_chk = model_chkpoints[model_type] if is_extern else None
+        if model_type == "dv3":
+            model_chk = f"{model_dir}/{model_chkpoints[model_type]}"
         S = _get_stride(model_type, model_id)
         model = PretrainedViTWrapper(
             model_id,
