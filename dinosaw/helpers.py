@@ -3,7 +3,8 @@ import torch.nn as nn
 import numpy as np
 from PIL import Image
 
-from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
+from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper, AlibiDV3Wrapper
+from dinosaw.models.simple_debias import DebiasedViTWrapper
 from dinosaw.models.denoising_vits import DenoisingViTWrapper
 from dinosaw.utils import to_numpy, closest_resize, convert_image
 
@@ -17,7 +18,9 @@ ModelTypes = Literal[
     "dv2",
     "dv2_b",
     "dv2_cb",
+    "dv2_db",
     "dvt",
+    "sinusoid_dv2",
     "alibi_dv2",
     "alibi_dv2_h",
     "alibi_dv2_cb",
@@ -26,6 +29,7 @@ ModelTypes = Literal[
     "alibi_dv2_cb_l_j",
     "alibi_dv2_coco",
     "alibi_dv2_coco_e1",
+    "alibi_dv3",
     "nope",
     "dv",
     "dv_b",
@@ -40,11 +44,13 @@ ModelTypes = Literal[
     "deit",
     "vit_t_in",
     "classical",
+    "eupe_s",
 ]
 TimmModels = Literal[
     "dv2",
     "dv2_b",
     "dv2_cb",
+    "dv2_db",
     "dv",
     "dv_b",
     "dv3",
@@ -63,7 +69,9 @@ model_types: tuple[ModelTypes] = get_args(ModelTypes)
 model_names: dict[ModelTypes, str] = {
     "dv2": "DINOv2",
     "dv2_b": "DINOv2-B",
+    "dv2_db": "DINOv2(DB)",
     "dvt": "DVT",
+    "sinusoid_dv2": "Sinusoid",
     "alibi_dv2": "ALiBi-Dv2",
     "alibi_dv2_h": "ALiBi(H)-Dv2",
     "alibi_dv2_cb": "ALiBi(CB)-Dv2",
@@ -72,6 +80,7 @@ model_names: dict[ModelTypes, str] = {
     "alibi_dv2_cb_l_j": "ALiBi(CB-L-J)-Dv2",
     "alibi_dv2_coco": "ALiBi(COCO)-Dv2",
     "alibi_dv2_coco_e1": "ALiBi(COCO)-Dv2-e1",
+    "alibi_dv3": "ALiBi-Dv3",
     "nope": "NoPE",
     "dv": "DINO",
     "dv_b": "DINO-B",
@@ -91,6 +100,7 @@ model_chkpoints: dict[ModelTypes, str] = {
     "dv2": "",
     "dv2_b": "",
     "dvt": "dvt.pth",
+    "sinusoid_dv2": "e2.pth",
     "alibi_dv2": "alibi_dv2_vits14_reg.pth",
     "alibi_dv2_h": "alibi_homog_dv2_vits14_reg.pth",
     "alibi_dv2_cb": "alibi_cb_dv2_vits14_reg.pth",
@@ -99,10 +109,12 @@ model_chkpoints: dict[ModelTypes, str] = {
     "alibi_dv2_cb_l_j": "alibi_cb_dv2_vits14_j_ms.pth",
     "alibi_dv2_coco": "alibi_coco_dv2_vits14_reg_ms.pth",
     "alibi_dv2_coco_e1": "alibi_coco_dv2_vits14_reg_ms_e1.pth",
+    "alibi_dv3": "alibi_dv3_ms.pth",
     "nope": "nope_coco_dv2_vits14_reg_ms.pth",
     "dv": "",
     "dv_b": "",
     "dv3": "dinov3_vits_patch16_plus_reg4.pth",
+    # "dv3": "",
     "dv3_b": "dinov3_vitb_patch16_reg4.pth",
     "vit_b": "",
     "clip_b": "",
@@ -129,7 +141,17 @@ model_name_to_timm: dict[TimmModels, str] = {
     "deit": MODEL_LIST[12],
     "vit_t_in": MODEL_LIST[13],
     "dv2_cb": MODEL_LIST[1],
+    "dv2_db": MODEL_LIST[1],
 }
+
+
+def _get_stride(model_type: ModelTypes, model_id: str) -> int:
+    if "patch16" in model_id.lower():
+        return 16
+    if "dv3" in model_type.lower():
+        return 16
+    else:
+        return 14
 
 
 def get_model(
@@ -142,16 +164,37 @@ def get_model(
 ) -> PretrainedViTWrapper:
     S = 14
     model: PretrainedViTWrapper | None = None
-    conf_path = conf_path if "dv3" in model_type else None
+    is_extern = "dv3" in model_type
+    conf_path = conf_path if is_extern else None
 
     if model_type == "classical":
         return None
 
-    if model_type in timm_models:
+    if "_db" in model_type:
+        print("debiased?")
         model_type = cast(TimmModels, model_type)
         model_id = model_name_to_timm[model_type]
         model_chk = model_chkpoints[model_type] if "dv3" in model_type else None
-        S = 16 if "patch16" in model_id else 14
+        S = _get_stride(model_type, model_id)
+        model = DebiasedViTWrapper(
+            model_id,
+            stride=S,
+            add_flash_attn=False,
+            device=device,
+            chk_path=model_chk,
+            conf_path=conf_path,
+        )
+        model = model.eval()
+        if to_half:
+            model = model.half()
+        return model
+
+    if model_type in timm_models:
+        model_type = cast(TimmModels, model_type)
+        model_id = model_name_to_timm[model_type]
+
+        model_chk = model_chkpoints[model_type] if is_extern else None
+        S = _get_stride(model_type, model_id)
         model = PretrainedViTWrapper(
             model_id,
             stride=S,
@@ -202,6 +245,39 @@ def get_model(
             jitter_mag=jitter_mag,
         )
         model.load_state_dict(weights)
+    elif "alibi_dv3" in model_type:
+        slope_type = "learned" if "_l" in model_type else "constant"
+        add_cls = False if "nr" in model_type else True
+        n_reg_tokens = 0 if "nr" in model_type else 4
+        jitter_mag = 0.025 if "_j" in model_type else 0.0
+        model_chk = model_chkpoints["dv3"] if is_extern else None
+        model = AlibiDV3Wrapper(
+            MODEL_LIST[4],
+            stride=16,
+            add_flash_attn=False,
+            device=device,
+            slope_type=slope_type,
+            normalize=True,
+            wrap=True,
+            add_cls=add_cls,
+            n_reg_tokens=n_reg_tokens,
+            jitter_mag=jitter_mag,
+            chk_path=model_chk,
+            conf_path=conf_path,
+            skip_overwrite=False,
+        )
+        model.load_state_dict(weights)
+    elif model_type == "sinusoid_dv2":
+        model = PretrainedViTWrapper(
+            MODEL_LIST[1],
+            stride=S,
+            add_flash_attn=False,
+            device=device,
+            conf_path=conf_path,
+            replace_pe_with_sincos=True,
+        )
+        model.load_state_dict(weights)
+
     else:
         raise Exception("Invalid model type")
 

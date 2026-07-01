@@ -3,11 +3,12 @@ from typing import Literal, TypedDict
 
 
 from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
 
 RampTypes = Literal["lr", "ud", "diag", "radial", "raster", "lr+ud", "random"]
-Regressor = Literal["linear", "ridge"]
+Regressor = Literal["linear", "ridge", "MLP"]
 
 
 def get_ramp(ramp_type: RampTypes, h: int, w: int) -> np.ndarray:
@@ -72,6 +73,17 @@ def gen_sample_mask(
     return mask
 
 
+def get_model(regressor: Regressor) -> LinearRegression | Ridge | MLPRegressor:
+    if regressor == "linear":
+        return LinearRegression()
+    elif regressor == "ridge":
+        return Ridge()
+    else:
+        return MLPRegressor(
+            hidden_layer_sizes=(10, 10, 10), max_iter=1_000, learning_rate_init=0.01, validation_fraction=0
+        )
+
+
 def linear_probe_arr(
     feats: np.ndarray,
     target: np.ndarray,
@@ -89,7 +101,8 @@ def linear_probe_arr(
         scaler = StandardScaler().fit(X)
         X = scaler.transform(X)
 
-    model = LinearRegression() if regressor == "linear" else Ridge()
+    # model = LinearRegression() if regressor == "linear" else Ridge()
+    model = get_model(regressor)
 
     try:
         model.fit(X, y)
