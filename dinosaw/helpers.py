@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from PIL import Image
+import os
 
 from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST
 from PVW import WrapperRegistry
@@ -158,7 +159,7 @@ model_type_to_registry_name = {
     "dv2_b": "dinov2_b",
     "dv": "dino_s",
     "dv_b": "dino_b",
-    "dv3": "dinov3_s",
+    "dv3": "dinov3_s+",
     "dv3_b": "dinov3_b",
     "vit_b": "mae_b",
     "clip_b": "clip_b",
@@ -170,6 +171,24 @@ model_type_to_registry_name = {
     "vit_t_in": "vit_t_in",
     "dv2_cb": "dinov2_s",
 }
+
+
+def _find_chk_path(model_dir: str, chk_name: str) -> str | None:
+    if not chk_name:
+        return None
+    path = f"{model_dir}/{chk_name}"
+    if os.path.exists(path):
+        return path
+    for fallback in [
+        f"models/{chk_name}",
+        f"models/checkpoints/{chk_name}",
+        f"models/checkpoints/backbones/{chk_name}",
+        f"models/checkpoints/trained/{chk_name}",
+        f"trained_models/{chk_name}",
+    ]:
+        if os.path.exists(fallback):
+            return fallback
+    return path
 
 
 def get_model(
@@ -185,13 +204,13 @@ def get_model(
 
     registry_name = model_type_to_registry_name.get(model_type, model_type)
     chk_name = model_chkpoints.get(model_type, "")
-    checkpoint_path = f"{model_dir}/{chk_name}" if chk_name else None
+    checkpoint_path = _find_chk_path(model_dir, chk_name)
 
     build_kwargs = {}
     is_local = "dv3" in model_type or "dinov3" in registry_name
     if is_local:
         base_chk_name = model_chkpoints.get("dv3" if "dv3" in model_type else model_type, "")
-        build_kwargs["checkpoint_path"] = f"{model_dir}/{base_chk_name}" if base_chk_name else None
+        build_kwargs["checkpoint_path"] = _find_chk_path(model_dir, base_chk_name)
         build_kwargs["model_conf_path"] = conf_path if conf_path else "dinov3"
 
     if model_type == "dvt":
@@ -203,6 +222,7 @@ def get_model(
     # Load checkpoint weights if they weren't loaded during backbone creation
     if checkpoint_path and (not is_local or checkpoint_path != build_kwargs.get("checkpoint_path")):
         weights = torch.load(checkpoint_path, weights_only=True, map_location=device)
+        weights = {k.replace("model.", "vit.", 1) if k.startswith("model.") else k: v for k, v in weights.items()}
         model.load_state_dict(weights)
 
     if remove_final_norm:

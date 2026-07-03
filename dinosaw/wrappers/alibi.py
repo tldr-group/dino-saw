@@ -189,7 +189,7 @@ register_alibi_model("alibi_dv2_coco", "dinov2_s", slope_type="constant", n_reg_
 register_alibi_model("alibi_dv2_coco_e1", "dinov2_s", slope_type="constant", n_reg_tokens=4, add_cls=True)
 
 # DinoV3 uses torch_hub backbone
-register_alibi_model("alibi_dv3", "dinov3_s", backbone_type="torch_hub", slope_type="constant", n_reg_tokens=4, add_cls=True)
+register_alibi_model("alibi_dv3", "dinov3_s+", backbone_type="torch_hub", slope_type="constant", n_reg_tokens=4, add_cls=True)
 
 # Register nope
 WrapperRegistry.register(
