@@ -42,16 +42,21 @@ def test_dvt_wrapper_loading():
 
 @pytest.mark.skipif(alibi_dv2_dir is None, reason="alibi_dv2_vits14_reg.pth checkpoint missing")
 def test_alibi_dv2_wrapper_loading():
-    model = get_model("alibi_dv2", alibi_dv2_dir, device="cpu")
-    assert isinstance(model, PretrainedViTWrapper)
+    # Test old name alibi_dv2
+    model_old = get_model("alibi_dv2", alibi_dv2_dir, device="cpu")
+    assert isinstance(model_old, PretrainedViTWrapper)
+
+    # Test new name alibi_dinov2_s
+    model_new = get_model("alibi_dinov2_s", alibi_dv2_dir, device="cpu")
+    assert isinstance(model_new, PretrainedViTWrapper)
 
     # Do inference on different sized tensors
     x1 = torch.randn(1, 3, 224, 224)
-    out1 = model.forward_features(x1, make_2D=True)
+    out1 = model_new.forward_features(x1, make_2D=True)
     assert out1.shape == (1, 384, 16, 16)
 
     x2 = torch.randn(1, 3, 112, 112)
-    out2 = model.forward_features(x2, make_2D=True)
+    out2 = model_new.forward_features(x2, make_2D=True)
     assert out2.shape == (1, 384, 8, 8)
 
 
@@ -79,14 +84,19 @@ def test_nope_wrapper_loading():
 
 @pytest.mark.skipif(alibi_dv3_dir is None, reason="alibi_dv3_ms.pth checkpoint missing")
 def test_alibi_dv3_wrapper_loading():
-    model = get_model("alibi_dv3", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
-    assert isinstance(model, PretrainedViTWrapper)
+    # Test old name alibi_dv3
+    model_old = get_model("alibi_dv3", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
+    assert isinstance(model_old, PretrainedViTWrapper)
+
+    # Test new name alibi_dinov3_s
+    model_new = get_model("alibi_dinov3_s", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
+    assert isinstance(model_new, PretrainedViTWrapper)
 
     # Do inference on different sized tensors
     x1 = torch.randn(1, 3, 224, 224)
-    out1 = model.forward_features(x1, make_2D=True)
+    out1 = model_new.forward_features(x1, make_2D=True)
     assert out1.shape == (1, 384, 14, 14)
 
     x2 = torch.randn(1, 3, 112, 112)
-    out2 = model.forward_features(x2, make_2D=True)
+    out2 = model_new.forward_features(x2, make_2D=True)
     assert out2.shape == (1, 384, 7, 7)

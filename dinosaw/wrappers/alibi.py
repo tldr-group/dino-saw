@@ -11,30 +11,6 @@ from dinosaw.alibi_logic import (
 from PVW import PretrainedViTWrapper, WrapperRegistry, WrapperConfig, BackboneConfig
 from PVW.types import satisfies_protocol, Dv3ViT
 
-MODEL_LIST = [
-    # DINOv2
-    "vit_small_patch14_dinov2.lvd142m",
-    # DINOv2 + register
-    "vit_small_patch14_reg4_dinov2.lvd142m",
-    # FIT3D finetuned
-    "fit3D_vit_small_patch14_reg4_dinov2.lvd142m",
-    "vit_base_patch14_reg4_dinov2.lvd142m",
-    # DINOv3
-    "vit_small_patch16_dinov3.lvd1689m",
-    "vit_small_patch16_224.dino",
-    "vit_base_patch16_224.mae",
-    "vit_base_patch16_clip_224.openai",
-    "eva02_base_patch14_224.mim_in22k",
-    "samvit_base_patch16.sa1b",
-    "convnextv2_tiny.fcmae",
-    "vit_base_patch16_clip_224.laion2b_ft_in12k_in1k",
-    "deit3_small_patch16_224.fb_in1k",
-    "tiny_vit_5m_224.dist_in22k_ft_in1k",
-    "vit_base_patch16_224.dino",
-    "dinov3_vitb_patch16_reg4",
-    "EUPE-ViT-S.pt",
-]
-
 
 
 def convert_timm_model(
@@ -178,35 +154,3 @@ def register_alibi_model(
     )
 
 
-# Register all ALiBi configurations
-register_alibi_model("alibi_dv2", "dinov2_s", slope_type="constant", n_reg_tokens=4, add_cls=True)
-register_alibi_model("alibi_dv2_h", "dinov2_s", slope_type="constant", n_reg_tokens=4, add_cls=True)
-register_alibi_model("alibi_dv2_cb", "dinov2_s", slope_type="constant", n_reg_tokens=4, add_cls=True)
-register_alibi_model("alibi_dv2_cb_s_l", "dinov2_s", slope_type="learned", n_reg_tokens=4, add_cls=True)
-register_alibi_model("alibi_dv2_cb_nr_l", "dinov2_s", slope_type="learned", n_reg_tokens=0, add_cls=False)
-register_alibi_model("alibi_dv2_cb_l_j", "dinov2_s", slope_type="learned", n_reg_tokens=4, add_cls=True, jitter_mag=0.025)
-register_alibi_model("alibi_dv2_coco", "dinov2_s", slope_type="constant", n_reg_tokens=4, add_cls=True)
-register_alibi_model("alibi_dv2_coco_e1", "dinov2_s", slope_type="constant", n_reg_tokens=4, add_cls=True)
-
-# DinoV3 uses torch_hub backbone
-register_alibi_model("alibi_dv3", "dinov3_s+", backbone_type="torch_hub", slope_type="constant", n_reg_tokens=4, add_cls=True)
-
-# Register nope
-WrapperRegistry.register(
-    "nope",
-    WrapperConfig(
-        backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s")
-    )
-)
-
-# Register sinusoid_dv2
-WrapperRegistry.register(
-    "sinusoid_dv2",
-    WrapperConfig(
-        backbone_cfg=BackboneConfig(
-            backbone_type="timm",
-            model_arch="dinov2_s",
-            modifications=[replace_pe_with_sincos],
-        )
-    )
-)
