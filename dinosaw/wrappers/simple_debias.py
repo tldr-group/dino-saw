@@ -45,11 +45,4 @@ class DebiasedViTWrapper(PretrainedViTWrapper):
         return X_deb
 
 
-# Register Debiased ViT
-WrapperRegistry.register(
-    "dv2_db",
-    WrapperConfig(
-        backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s"),
-        wrapper_class=DebiasedViTWrapper,
-    ),
-)
+

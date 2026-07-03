@@ -95,7 +95,7 @@ def test_distance_matrix_detailed():
 
 def test_alibi_forward_and_update():
     # Build alibi model
-    model = WrapperRegistry.build("alibi_dv2", device="cpu")
+    model = WrapperRegistry.build("alibi_dinov2_s", device="cpu")
     model = model.eval()
 
     # Pass 1: 224 x 224 input

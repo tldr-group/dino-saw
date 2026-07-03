@@ -158,11 +158,4 @@ def get_denoiser(
     return model
 
 
-# Register Denoising ViT
-WrapperRegistry.register(
-    "dvt",
-    WrapperConfig(
-        backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s"),
-        wrapper_class=DenoisingViTWrapper,
-    ),
-)
+

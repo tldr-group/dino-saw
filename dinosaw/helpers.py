@@ -4,145 +4,15 @@ import numpy as np
 from PIL import Image
 import os
 
-from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST
+from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST, WRAPPER_CHECKPOINTS, ModelTypes, MODEL_NAMES
 from PVW import WrapperRegistry
 from dinosaw.utils import to_numpy, closest_resize, convert_image
-
-from typing import Literal, cast, get_args
-
+from typing import cast
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
+model_names = MODEL_NAMES
+model_chkpoints: dict[str, str] = WRAPPER_CHECKPOINTS
 
-
-ModelTypes = Literal[
-    "dv2",
-    "dv2_b",
-    "dv2_cb",
-    "dv2_db",
-    "dvt",
-    "sinusoid_dv2",
-    "alibi_dv2",
-    "alibi_dv2_h",
-    "alibi_dv2_cb",
-    "alibi_dv2_cb_s_l",
-    "alibi_dv2_cb_nr_l",
-    "alibi_dv2_cb_l_j",
-    "alibi_dv2_coco",
-    "alibi_dv2_coco_e1",
-    "alibi_dv3",
-    "nope",
-    "dv",
-    "dv_b",
-    "dv3",
-    "dv3_b",
-    "vit_b",
-    "clip_b",
-    "eva02_b",
-    "sam_b",
-    "convnext",
-    "vit_b_in",
-    "deit",
-    "vit_t_in",
-    "classical",
-    "eupe_s",
-]
-TimmModels = Literal[
-    "dv2",
-    "dv2_b",
-    "dv2_cb",
-    "dv2_db",
-    "dv",
-    "dv_b",
-    "dv3",
-    "dv3_b",
-    "vit_b",
-    "clip_b",
-    "eva02_b",
-    "sam_b",
-    "convnext",
-    "vit_b_in",
-    "deit",
-    "vit_t_in",
-]
-timm_models = get_args(TimmModels)
-model_types: tuple[ModelTypes] = get_args(ModelTypes)
-model_names: dict[ModelTypes, str] = {
-    "dv2": "DINOv2",
-    "dv2_b": "DINOv2-B",
-    "dv2_db": "DINOv2(DB)",
-    "dvt": "DVT",
-    "sinusoid_dv2": "Sinusoid",
-    "alibi_dv2": "ALiBi-Dv2",
-    "alibi_dv2_h": "ALiBi(H)-Dv2",
-    "alibi_dv2_cb": "ALiBi(CB)-Dv2",
-    "alibi_dv2_cb_s_l": "ALiBi(CB-S-L)-Dv2",
-    "alibi_dv2_cb_nr_l": "ALiBi(CB-NR-L)-Dv2",
-    "alibi_dv2_cb_l_j": "ALiBi(CB-L-J)-Dv2",
-    "alibi_dv2_coco": "ALiBi(COCO)-Dv2",
-    "alibi_dv2_coco_e1": "ALiBi(COCO)-Dv2-e1",
-    "alibi_dv3": "ALiBi-Dv3",
-    "nope": "NoPE",
-    "dv": "DINO",
-    "dv_b": "DINO-B",
-    "dv3": "DINOv3",
-    "dv3_b": "DINOv3-B",
-    "clip_b": "CLIP-B",
-    "eva02_b": "EVA02-B",
-    "sam_b": "SAM-B",
-    "convnext": "",
-    "vit_b": "ViT-B",
-    "vit_b_in": "ViT-B-INet",
-    "deit": "",
-    "vit_t_in": "",
-    "classical": "Classical",
-}
-model_chkpoints: dict[ModelTypes, str] = {
-    "dv2": "",
-    "dv2_b": "",
-    "dvt": "dvt.pth",
-    "sinusoid_dv2": "e2.pth",
-    "alibi_dv2": "alibi_dv2_vits14_reg.pth",
-    "alibi_dv2_h": "alibi_homog_dv2_vits14_reg.pth",
-    "alibi_dv2_cb": "alibi_cb_dv2_vits14_reg.pth",
-    "alibi_dv2_cb_s_l": "alibi_scratch_cb_dv2_vits14_reg_learned_m.pth",
-    "alibi_dv2_cb_nr_l": "alibi_cb_dv2_vits14_noreg.pth",
-    "alibi_dv2_cb_l_j": "alibi_cb_dv2_vits14_j_ms.pth",
-    "alibi_dv2_coco": "alibi_coco_dv2_vits14_reg_ms.pth",
-    "alibi_dv2_coco_e1": "alibi_coco_dv2_vits14_reg_ms_e1.pth",
-    "alibi_dv3": "alibi_dv3_ms.pth",
-    "nope": "nope_coco_dv2_vits14_reg_ms.pth",
-    "dv": "",
-    "dv_b": "",
-    "dv3": "dinov3_vits_patch16_plus_reg4.pth",
-    # "dv3": "",
-    "dv3_b": "dinov3_vitb_patch16_reg4.pth",
-    "vit_b": "",
-    "clip_b": "",
-    "eva02_b": "",
-    "sam_b": "",
-    "convnext": "",
-    "vit_b_in": "",
-    "deit": "",
-    "vit_t_in": "",
-}
-model_name_to_timm: dict[TimmModels, str] = {
-    "dv2": MODEL_LIST[1],
-    "dv2_b": MODEL_LIST[3],
-    "dv": MODEL_LIST[5],
-    "dv_b": MODEL_LIST[14],
-    "dv3": MODEL_LIST[4],
-    "dv3_b": MODEL_LIST[15],
-    "vit_b": MODEL_LIST[6],
-    "clip_b": MODEL_LIST[7],
-    "eva02_b": MODEL_LIST[8],
-    "sam_b": MODEL_LIST[9],
-    "convnext": MODEL_LIST[10],
-    "vit_b_in": MODEL_LIST[11],
-    "deit": MODEL_LIST[12],
-    "vit_t_in": MODEL_LIST[13],
-    "dv2_cb": MODEL_LIST[1],
-    "dv2_db": MODEL_LIST[1],
-}
 
 
 def _get_stride(model_type: ModelTypes, model_id: str) -> int:
@@ -155,11 +25,26 @@ def _get_stride(model_type: ModelTypes, model_id: str) -> int:
 
 
 model_type_to_registry_name = {
+    # Old notation mappings
     "dv2": "dinov2_s",
+    "dv3": "dinov3_s",
+    "alibi_dv2": "alibi_dinov2_s",
+    "alibi_dv3": "alibi_dinov3_s",
+    "sinusoid_dv2": "sinusoid_dinov2_s",
+    "dv2_db": "debiased_dinov2_s",
+    # New / standard notation mappings
+    "dinov2_s": "dinov2_s",
+    "dinov3_s": "dinov3_s",
+    "alibi_dinov2_s": "alibi_dinov2_s",
+    "alibi_dinov3_s": "alibi_dinov3_s",
+    "sinusoid_dinov2_s": "sinusoid_dinov2_s",
+    "debiased_dinov2_s": "debiased_dinov2_s",
+    "nope": "nope",
+    "dvt": "dvt",
+    # Others
     "dv2_b": "dinov2_b",
     "dv": "dino_s",
     "dv_b": "dino_b",
-    "dv3": "dinov3_s+",
     "dv3_b": "dinov3_b",
     "vit_b": "mae_b",
     "clip_b": "clip_b",
@@ -203,13 +88,14 @@ def get_model(
         return None
 
     registry_name = model_type_to_registry_name.get(model_type, model_type)
-    chk_name = model_chkpoints.get(model_type, "")
+    chk_name = model_chkpoints.get(registry_name, "")
     checkpoint_path = _find_chk_path(model_dir, chk_name)
 
     build_kwargs = {}
     is_local = "dv3" in model_type or "dinov3" in registry_name
     if is_local:
-        base_chk_name = model_chkpoints.get("dv3" if "dv3" in model_type else model_type, "")
+        base_chk_key = "dinov3_b" if "dinov3_b" in registry_name or "dv3_b" in model_type else "dinov3_s"
+        base_chk_name = model_chkpoints.get(base_chk_key, "")
         build_kwargs["checkpoint_path"] = _find_chk_path(model_dir, base_chk_name)
         build_kwargs["model_conf_path"] = conf_path if conf_path else "dinov3"
 
