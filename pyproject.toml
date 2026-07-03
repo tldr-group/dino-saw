@@ -22,17 +22,19 @@ dependencies = [
   "torchvision",
   "torchmetrics>=0.10.3",
   "timm>=1.0.9",
+  "pretrainedvitwrapper[models]@git+https://github.com/rmdocherty/PretrainedViTWrapper",
+  "dinov3@git+https://github.com/facebookresearch/dinov3",
   "numpy>=1.26.4",
   "scikit-learn>=1.6.1",
   "pillow>=11.2.0",
   "scikit-image>=0.25.2",
-  "tifffile>=2025.3.30",
-  "matplotlib>=3.10.0",
   ]
 
 [project.optional-dependencies]
 paper = [
-  "mictools>=1.1.4"
+  "interactive-seg-backend[cpu,dev]@git+https://github.com/tldr-group/interactive-seg-backend",
+  "tifffile>=2025.3.30",
+  "matplotlib>=3.10.0",
 ]
 
 
@@ -41,7 +43,7 @@ paper = [
 "Bug Tracker" = "https://github.com/tldr-group/dino-saw/issues"
 
 [tool.setuptools]
-packages = ["dinosaw", "dinosaw.models", "dinosaw.datasets"]
+packages = ["dinosaw", "dinosaw.wrappers", "dinosaw.datasets"]
 
 [tool.uv.sources]
 torch = [
