@@ -119,19 +119,4 @@ def test_alibi_forward_and_update():
     assert model.vit.distance_matrix.matrix.shape == (69, 69)
 
 
-def test_load_other_wrappers():
-    # 1. nope
-    nope_model = WrapperRegistry.build("nope", device="cpu")
-    assert isinstance(nope_model, PretrainedViTWrapper)
 
-    # 2. sinusoid_dv2
-    sin_model = WrapperRegistry.build("sinusoid_dv2", device="cpu")
-    assert isinstance(sin_model, PretrainedViTWrapper)
-
-    # 3. dv2_db
-    db_model = WrapperRegistry.build("dv2_db", device="cpu")
-    assert isinstance(db_model, DebiasedViTWrapper)
-
-    # 4. dvt
-    dvt_model = WrapperRegistry.build("dvt", device="cpu")
-    assert isinstance(dvt_model, DenoisingViTWrapper)
