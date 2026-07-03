@@ -12,7 +12,6 @@ from PVW import PretrainedViTWrapper, WrapperRegistry, WrapperConfig, BackboneCo
 from PVW.types import satisfies_protocol, Dv3ViT
 
 
-
 def convert_timm_model(
     model: nn.Module,
     slope_type: str = "constant",
@@ -148,9 +147,8 @@ def register_alibi_model(
             backbone_cfg=BackboneConfig(
                 backbone_type=backbone_type,
                 model_arch=model_arch,  # type: ignore
+                remove_pos_embed=True,
                 modifications=[mod],
             )
         ),
     )
-
-

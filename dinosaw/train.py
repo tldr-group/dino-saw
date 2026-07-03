@@ -16,6 +16,7 @@ from dinosaw.alibi_logic import AlibiSlopeType
 from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
 from dinosaw.wrappers.alibi import add_alibi, replace_pe_with_sincos
 from PVW.factory import BackboneConfig, BackboneRegistry
+from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
 from dinosaw.utils import seed_everything, closest_resize, closest_resize_crop
 
 from dataclasses import dataclass, field
@@ -90,7 +91,7 @@ def get_model(
     is_dinov3 = "dv3" in vit_model_type or "dinov3" in vit_model_type
     print(vit_model_type)
 
-    from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
+
     arch_name = None
     for k, v in ARCHS_TO_TIMM_IDS.items():
         if v == vit_model_type:

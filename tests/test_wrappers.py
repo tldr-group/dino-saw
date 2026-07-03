@@ -62,14 +62,7 @@ def test_alibi_dv2_wrapper_loading():
 
 @pytest.mark.skipif(nope_dir is None, reason="nope_dv2_vits14_reg.pth checkpoint missing")
 def test_nope_wrapper_loading():
-    chk_path = os.path.join(nope_dir, "nope_dv2_vits14_reg.pth")
     model = WrapperRegistry.build("nope", device="cpu")
-    state_dict = torch.load(chk_path, weights_only=True, map_location="cpu")
-    state_dict = {
-        k.replace("model.", "vit.", 1) if k.startswith("model.") else k: v
-        for k, v in state_dict.items()
-    }
-    model.load_state_dict(state_dict)
     model = model.eval()
 
     # Do inference on different sized tensors

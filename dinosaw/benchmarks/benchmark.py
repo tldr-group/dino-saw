@@ -28,6 +28,10 @@ import dinosaw.utils as utils
 from dinosaw.wrappers.DPT_head import DPTHead
 from dinosaw.alibi_logic import AlibiSlopeType
 from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
+from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
+from PVW.factory import BackboneConfig, BackboneRegistry
+from functools import partial
+from dinosaw.wrappers.alibi import add_alibi
 from dinosaw.utils import seed_everything, closest_resize
 import time
 
@@ -177,10 +181,7 @@ def get_model(
 ) -> nn.Module:
     is_dinov3 = "dv3" in vit_model_type or "dinov3" in vit_model_type
 
-    from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
-    from PVW.factory import BackboneConfig, BackboneRegistry
-    from functools import partial
-    from dinosaw.wrappers.alibi import add_alibi
+
 
     arch_name = None
     for k, v in ARCHS_TO_TIMM_IDS.items():

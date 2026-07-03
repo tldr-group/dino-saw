@@ -10,9 +10,9 @@ from dinosaw.utils import to_numpy, closest_resize, convert_image
 from typing import cast
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
+
 model_names = MODEL_NAMES
 model_chkpoints: dict[str, str] = WRAPPER_CHECKPOINTS
-
 
 
 def _get_stride(model_type: ModelTypes, model_id: str) -> int:
@@ -106,10 +106,10 @@ def get_model(
     model = WrapperRegistry.build(registry_name, device=device, **build_kwargs)
 
     # Load checkpoint weights if they weren't loaded during backbone creation
-    if checkpoint_path and (not is_local or checkpoint_path != build_kwargs.get("checkpoint_path")):
-        weights = torch.load(checkpoint_path, weights_only=True, map_location=device)
-        weights = {k.replace("model.", "vit.", 1) if k.startswith("model.") else k: v for k, v in weights.items()}
-        model.load_state_dict(weights)
+    # if checkpoint_path and (not is_local or checkpoint_path != build_kwargs.get("checkpoint_path")):
+    #     weights = torch.load(checkpoint_path, weights_only=True, map_location=device)
+    #     weights = {k.replace("model.", "vit.", 1) if k.startswith("model.") else k: v for k, v in weights.items()}
+    #     model.load_state_dict(weights)
 
     if remove_final_norm:
         if hasattr(model.vit, "norm"):

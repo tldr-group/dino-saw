@@ -49,9 +49,7 @@ def get_arrs_from_batch(
 
         out_2D_arrs: list[np.ndarray] = [img_arr]
         tensors = (
-            (lr_feat_tensor, pred_homog_tensor)
-            if isinstance(pred_homog_feats, torch.Tensor)
-            else (lr_feat_tensor)
+            (lr_feat_tensor, pred_homog_tensor) if isinstance(pred_homog_feats, torch.Tensor) else (lr_feat_tensor)
         )
         for i, d in enumerate(tensors):
             feat_arr = to_numpy(d)
@@ -73,9 +71,7 @@ def visualise(
 ) -> Image.Image:
     n_rows = 3 if isinstance(pred_homog_feats, torch.Tensor) else 3
     img_unnormed = unnorm(img)
-    img_rgb = (img_unnormed - img_unnormed.min()) / (
-        img_unnormed.max() - img_unnormed.min()
-    )
+    img_rgb = (img_unnormed - img_unnormed.min()) / (img_unnormed.max() - img_unnormed.min())
     arrs = get_arrs_from_batch(
         img_rgb,
         lr_feats,
@@ -131,18 +127,12 @@ def get_seg_arrs_from_batch(
                 out_2D = colorize(to_numpy(pred_homog_tensor).argmax(axis=0))
             out_2D_arrs.append(out_2D)
             if pred_homog_tensor.shape[0] > 2:
-                out_2D_arrs.append(
-                    do_2D_pca(to_numpy(pred_homog_tensor), 3, post_norm="minmax")
-                )
+                out_2D_arrs.append(do_2D_pca(to_numpy(pred_homog_tensor), 3, post_norm="minmax"))
             else:
                 if is_NYU:
-                    out_2D_arrs.append(
-                        pred_homog_tensor.argmax(dim=0).squeeze().cpu().numpy()
-                    )
+                    out_2D_arrs.append(pred_homog_tensor.argmax(dim=0).squeeze().cpu().numpy())
                 else:
-                    out_2D_arrs.append(
-                        torch.argmax(pred_homog_tensor, dim=0).cpu().numpy()
-                    )
+                    out_2D_arrs.append(torch.argmax(pred_homog_tensor, dim=0).cpu().numpy())
 
         arrs.append(out_2D_arrs)
     return arrs
@@ -157,9 +147,7 @@ def visualise_segmentation(
 ):
     n_rows = 4 if isinstance(pred_feats, torch.Tensor) else 3
     img_unnormed = unnorm(img)
-    img_rgb = (img_unnormed - img_unnormed.min()) / (
-        img_unnormed.max() - img_unnormed.min()
-    )
+    img_rgb = (img_unnormed - img_unnormed.min()) / (img_unnormed.max() - img_unnormed.min())
 
     arrs = get_seg_arrs_from_batch(img_rgb, mask, pred_feats, is_NYU)
 
@@ -193,9 +181,7 @@ if __name__ == "__main__":
     dv2 = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
     dv2 = dv2.eval()
 
-    ds = HomogenizedEmbeddingDataset(
-        "data/IN_reduced_224", "val", store_in_memory=False, norm_feats=True
-    )
+    ds = HomogenizedEmbeddingDataset("data/IN_reduced_224", "val", store_in_memory=False, norm_feats=True)
     dl = DataLoader(
         ds,
         32,
