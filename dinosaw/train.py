@@ -12,8 +12,10 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from dinosaw.datasets.vis_dataset import visualise
 from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
 from dinosaw.datasets.joint_embed_dataset import JointEmbeddingDataset, OTFEmbeddingDataset
-from dinosaw.models.alibi import AlibiSlopeType
-from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper, AlibiDV3Wrapper
+from dinosaw.alibi_logic import AlibiSlopeType
+from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
+from dinosaw.wrappers.alibi import add_alibi, replace_pe_with_sincos
+from PVW.factory import BackboneConfig, BackboneRegistry
 from dinosaw.utils import seed_everything, closest_resize, closest_resize_crop
 
 from dataclasses import dataclass, field
@@ -88,87 +90,64 @@ def get_model(
     is_dinov3 = "dv3" in vit_model_type or "dinov3" in vit_model_type
     print(vit_model_type)
 
-    match model_type:
-        case "base":
-            if is_dinov3:
-                print("bahh")
-                model = AlibiDV3Wrapper(
-                    vit_model_type,
-                    stride=stride,
-                    add_flash_attn=False,
-                    device=device,
-                    chk_path=chk_path,
-                    conf_path="dinov3",
-                    pretrained=pretrained,
-                    skip_overwrite=True,
-                )
-            else:
-                model = PretrainedViTWrapper(
-                    vit_model_type,
-                    stride=stride,
-                    add_flash_attn=False,
-                    device=device,
-                    chk_path=chk_path,
-                    pretrained=pretrained,
-                )
-        case "plus_alibi":
-            model_class = AlibiDV3Wrapper if is_dinov3 else AlibiVitWrapper
-            model = model_class(
-                vit_model_type,
-                stride=stride,
-                add_flash_attn=False,
-                device=device,
-                slope_type=alibi_slope_type,
-                normalize=norm_alibi,
-                wrap=wrap_alibi,
-                chk_path=chk_path,
-                pretrained=pretrained,
-                n_reg_tokens=n_reg_tokens,
-                add_cls=add_cls_token,
-                jitter_mag=jitter_mag,
-                conf_path="dinov3",
-            )
-        case "plus_sincos":
-            model = PretrainedViTWrapper(
-                vit_model_type,
-                stride=stride,
-                add_flash_attn=False,
-                device=device,
-                chk_path=chk_path,
-                pretrained=pretrained,
-                replace_pe_with_sincos=True,
-            )
-        case "nope":
-            model = PretrainedViTWrapper(
-                vit_model_type,
-                stride=stride,
-                add_flash_attn=False,
-                device=device,
-                chk_path=chk_path,
-                pretrained=pretrained,
-            )
-        case _:
-            raise Exception(f"Unsupported model type {model_type}")
+    from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
+    arch_name = None
+    for k, v in ARCHS_TO_TIMM_IDS.items():
+        if v == vit_model_type:
+            arch_name = k
+            break
+    if arch_name is None:
+        for k, v in ARCHS_TO_LOCAL_IDS.items():
+            if v == vit_model_type:
+                arch_name = k
+                break
+    if arch_name is None:
+        arch_name = vit_model_type
+
+    backbone_type = "torch_hub" if is_dinov3 else "timm"
+    cfg = BackboneConfig(
+        backbone_type=backbone_type,
+        model_arch=arch_name,  # type: ignore
+        pretrained=pretrained,
+        checkpoint_path=chk_path,
+        model_conf_path="dinov3" if is_dinov3 else None,
+        stride=(stride, stride),
+    )
+
+    if model_type == "plus_alibi":
+        mod = partial(
+            add_alibi,
+            slope_type=alibi_slope_type,
+            n_reg_tokens=n_reg_tokens,
+            metric="euclidean",
+            normalize=norm_alibi,
+            wrap=wrap_alibi,
+            add_cls=add_cls_token,
+            jitter_mag=jitter_mag,
+        )
+        cfg.modifications.append(mod)
+    elif model_type == "plus_sincos":
+        cfg.modifications.append(replace_pe_with_sincos)
+
+    vit = BackboneRegistry.build(cfg)
+    model = PretrainedViTWrapper(vit=vit, device=device)
+    model.set_alibi_enabled = lambda enabled: None
 
     if freeze_abs_pos_emb or zero_pos_emb or model_type == "nope":
-        # assert model.model.pos_embed is not None
-        if "dv3" in vit_model_type or "dinov3" in vit_model_type:
+        if is_dinov3:
             pass
         else:
-            model.model.pos_embed.requires_grad = False  # freeze pos embedding
+            if hasattr(model.vit, "pos_embed") and model.vit.pos_embed is not None:
+                model.vit.pos_embed.requires_grad = False  # freeze pos embedding
 
     if zero_pos_emb or model_type == "nope":
-        # assert model.model.pos_embed is not None
-        if "dv3" in vit_model_type or "dinov3" in vit_model_type:
+        if is_dinov3:
             print("dinov3, zeroing rope_embed")
-            model.model.rope_embed = None
+            if hasattr(model.vit, "rope_embed"):
+                model.vit.rope_embed = None
         else:
-            model.model.pos_embed.data.zero_()
-
-    if model_type == "plus_alibi" and n_epochs_warmup <= 0:
-        model.set_alibi_enabled(True)
-    elif model_type == "plus_alibi" and n_epochs_warmup > 0:
-        model.set_alibi_enabled(False)
+            if hasattr(model.vit, "pos_embed") and model.vit.pos_embed is not None:
+                model.vit.pos_embed.data.zero_()
 
     if existing_checkpoint is not None:
         print(f"Loading existing checkpoint from {existing_checkpoint}")

@@ -3,9 +3,8 @@ import torch.nn as nn
 import numpy as np
 from PIL import Image
 
-from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper, AlibiDV3Wrapper
-from dinosaw.models.simple_debias import DebiasedViTWrapper
-from dinosaw.models.denoising_vits import DenoisingViTWrapper
+from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST
+from PVW import WrapperRegistry
 from dinosaw.utils import to_numpy, closest_resize, convert_image
 
 from typing import Literal, cast, get_args
@@ -154,6 +153,25 @@ def _get_stride(model_type: ModelTypes, model_id: str) -> int:
         return 14
 
 
+model_type_to_registry_name = {
+    "dv2": "dinov2_s",
+    "dv2_b": "dinov2_b",
+    "dv": "dino_s",
+    "dv_b": "dino_b",
+    "dv3": "dinov3_s",
+    "dv3_b": "dinov3_b",
+    "vit_b": "mae_b",
+    "clip_b": "clip_b",
+    "eva02_b": "eva02_b",
+    "sam_b": "sam_b",
+    "convnext": "convnext",
+    "vit_b_in": "in1k_b",
+    "deit": "deit_s",
+    "vit_t_in": "vit_t_in",
+    "dv2_cb": "dinov2_s",
+}
+
+
 def get_model(
     model_type: ModelTypes,
     model_dir: str,
@@ -162,129 +180,35 @@ def get_model(
     conf_path: str | None = None,
     remove_final_norm: bool = False,
 ) -> PretrainedViTWrapper:
-    S = 14
-    model: PretrainedViTWrapper | None = None
-    is_extern = "dv3" in model_type
-    conf_path = conf_path if is_extern else None
-
     if model_type == "classical":
         return None
 
-    if "_db" in model_type:
-        print("debiased?")
-        model_type = cast(TimmModels, model_type)
-        model_id = model_name_to_timm[model_type]
-        model_chk = model_chkpoints[model_type] if "dv3" in model_type else None
-        S = _get_stride(model_type, model_id)
-        model = DebiasedViTWrapper(
-            model_id,
-            stride=S,
-            add_flash_attn=False,
-            device=device,
-            chk_path=model_chk,
-            conf_path=conf_path,
-        )
-        model = model.eval()
-        if to_half:
-            model = model.half()
-        return model
+    registry_name = model_type_to_registry_name.get(model_type, model_type)
+    chk_name = model_chkpoints.get(model_type, "")
+    checkpoint_path = f"{model_dir}/{chk_name}" if chk_name else None
 
-    if model_type in timm_models:
-        model_type = cast(TimmModels, model_type)
-        model_id = model_name_to_timm[model_type]
+    build_kwargs = {}
+    is_local = "dv3" in model_type or "dinov3" in registry_name
+    if is_local:
+        base_chk_name = model_chkpoints.get("dv3" if "dv3" in model_type else model_type, "")
+        build_kwargs["checkpoint_path"] = f"{model_dir}/{base_chk_name}" if base_chk_name else None
+        build_kwargs["model_conf_path"] = conf_path if conf_path else "dinov3"
 
-        model_chk = model_chkpoints[model_type] if is_extern else None
-        S = _get_stride(model_type, model_id)
-        model = PretrainedViTWrapper(
-            model_id,
-            stride=S,
-            add_flash_attn=False,
-            device=device,
-            chk_path=model_chk,
-            conf_path=conf_path,
-        )
-        model = model.eval()
-        if to_half:
-            model = model.half()
-        return model
+    if model_type == "dvt":
+        build_kwargs["denoiser_path"] = checkpoint_path
+        checkpoint_path = None
 
-    chk_path = f"{model_dir}/{model_chkpoints[model_type]}"
-    weights = torch.load(chk_path, weights_only=True, map_location=device)
-    if model_type == "nope":
-        model = PretrainedViTWrapper(
-            MODEL_LIST[1],
-            stride=S,
-            add_flash_attn=False,
-            device=device,
-        )
+    model = WrapperRegistry.build(registry_name, device=device, **build_kwargs)
+
+    # Load checkpoint weights if they weren't loaded during backbone creation
+    if checkpoint_path and (not is_local or checkpoint_path != build_kwargs.get("checkpoint_path")):
+        weights = torch.load(checkpoint_path, weights_only=True, map_location=device)
         model.load_state_dict(weights)
-    elif model_type == "dvt":
-        model = DenoisingViTWrapper(
-            chk_path,
-            MODEL_LIST[1],
-            stride=S,
-            add_flash_attn=False,
-            device=device,
-        )
-    elif "alibi_dv2" in model_type:
-        slope_type = "learned" if "_l" in model_type else "constant"
-        add_cls = False if "nr" in model_type else True
-        n_reg_tokens = 0 if "nr" in model_type else 4
-        jitter_mag = 0.025 if "_j" in model_type else 0.0
-
-        model = AlibiVitWrapper(
-            MODEL_LIST[1],
-            stride=S,
-            add_flash_attn=False,
-            device=device,
-            slope_type=slope_type,
-            normalize=True,
-            wrap=True,
-            add_cls=add_cls,
-            n_reg_tokens=n_reg_tokens,
-            jitter_mag=jitter_mag,
-        )
-        model.load_state_dict(weights)
-    elif "alibi_dv3" in model_type:
-        slope_type = "learned" if "_l" in model_type else "constant"
-        add_cls = False if "nr" in model_type else True
-        n_reg_tokens = 0 if "nr" in model_type else 4
-        jitter_mag = 0.025 if "_j" in model_type else 0.0
-        model_chk = model_chkpoints["dv3"] if is_extern else None
-        model = AlibiDV3Wrapper(
-            MODEL_LIST[4],
-            stride=16,
-            add_flash_attn=False,
-            device=device,
-            slope_type=slope_type,
-            normalize=True,
-            wrap=True,
-            add_cls=add_cls,
-            n_reg_tokens=n_reg_tokens,
-            jitter_mag=jitter_mag,
-            chk_path=model_chk,
-            conf_path=conf_path,
-            skip_overwrite=False,
-        )
-        model.load_state_dict(weights)
-    elif model_type == "sinusoid_dv2":
-        model = PretrainedViTWrapper(
-            MODEL_LIST[1],
-            stride=S,
-            add_flash_attn=False,
-            device=device,
-            conf_path=conf_path,
-            replace_pe_with_sincos=True,
-        )
-        model.load_state_dict(weights)
-
-    else:
-        raise Exception("Invalid model type")
 
     if remove_final_norm:
-        model.model.norm = nn.Identity()
+        if hasattr(model.vit, "norm"):
+            model.vit.norm = nn.Identity()
 
-    assert model is not None
     model = model.eval()
     if to_half:
         model = model.half()

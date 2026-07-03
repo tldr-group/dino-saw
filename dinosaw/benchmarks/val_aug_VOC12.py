@@ -180,23 +180,13 @@ df = pd.DataFrame(
 )
 for TR in ["none", "flip-ud", "rot90", "roll"]:
     if MODEL == "Dv2":
-        model = PretrainedViTWrapper(
-            model_identifier=MODEL_LIST[1],
-            stride=14,
-            add_flash_attn=False,
-            device=DEVICE,
-        )
+        model = WrapperRegistry.build("dinov2_s", device=DEVICE)
         model_aug = AugmentModel(model=model, device=DEVICE, size=518, tr_type=TR)
         model_aug.load_state_dict(
             torch.load("../../trained_linear_models/VOC12_Dv2.pth", map_location=DEVICE)
         )
     if MODEL == "NoPE":
-        model = PretrainedViTWrapper(
-            model_identifier=MODEL_LIST[1],
-            stride=14,
-            add_flash_attn=False,
-            device=DEVICE,
-        )
+        model = WrapperRegistry.build("nope", device=DEVICE)
         model_aug = AugmentModel(model=model, device=DEVICE, size=518, tr_type=TR)
         model_aug.load_state_dict(
             torch.load(
@@ -204,9 +194,7 @@ for TR in ["none", "flip-ud", "rot90", "roll"]:
             )
         )
     if MODEL == "coco":
-        model = AlibiVitWrapper(
-            model_identifier=MODEL_LIST[1], add_flash_attn=False, device=DEVICE
-        )
+        model = WrapperRegistry.build("alibi_dv2", device=DEVICE)
 
         model_aug = AugmentModel(model=model, device=DEVICE, size=518, tr_type=TR)
         model_aug.load_state_dict(
