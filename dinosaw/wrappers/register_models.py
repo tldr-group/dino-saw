@@ -1,8 +1,7 @@
-from functools import partial
 from typing import Literal
 from PVW import WrapperRegistry, WrapperConfig, BackboneConfig
 
-from dinosaw.wrappers.alibi import add_alibi, replace_pe_with_sincos, register_alibi_model
+from dinosaw.wrappers.alibi import replace_pe_with_sincos, register_alibi_model
 from dinosaw.wrappers.simple_debias import DebiasedViTWrapper
 from dinosaw.wrappers.denoising_vits import DenoisingViTWrapper
 
@@ -98,9 +97,7 @@ MODEL_NAMES = {
 # Register dinov2_s explicitly with timm backend
 WrapperRegistry.register(
     "dinov2_s",
-    WrapperConfig(
-        backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s")
-    ),
+    WrapperConfig(backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s")),
 )
 
 # Register dinov3_s mapping to dinov3_s+ (with register and SwiGLU)
@@ -118,9 +115,7 @@ WrapperRegistry.register(
 # 4. NoPE
 WrapperRegistry.register(
     "nope",
-    WrapperConfig(
-        backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s")
-    ),
+    WrapperConfig(backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s", remove_pos_embed=True)),
 )
 
 # 5. Sinusoid
