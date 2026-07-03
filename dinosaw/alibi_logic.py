@@ -63,8 +63,8 @@ def get_distance_matrix(
 ) -> torch.Tensor:
     coords = torch.stack(
         torch.meshgrid(
-            torch.arange(n_tokens_h, device=device),
-            torch.arange(n_tokens_w, device=device),
+            torch.arange(n_tokens_h, device=device, dtype=dtype),
+            torch.arange(n_tokens_w, device=device, dtype=dtype),
             indexing="ij",
         ),
         dim=-1,
@@ -367,7 +367,7 @@ class AlibiAttention(Attention):
         else:
             raise Exception(f"Unexpected slope type {type(m)}")
 
-    def forward(self, x: torch.Tensor, attn_mask=None, attn_bias=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask=None, attn_bias=None, **kwargs) -> torch.Tensor:
         B, N, C = x.shape
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
@@ -455,7 +455,7 @@ class AlibiBlock(Block):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
+    from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST
 
     h, w = 8, 30
 

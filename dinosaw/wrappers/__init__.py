@@ -1,3 +1,14 @@
-__all__ = ["PretrainedViTWrapper"]
-# from .lightning_model import PEModel
-from .vit_wrapper import PretrainedViTWrapper
+__all__ = [
+    "PretrainedViTWrapper",
+    "DebiasedViTWrapper",
+    "DenoisingViTWrapper",
+    "MODEL_LIST",
+]
+
+from PVW import PretrainedViTWrapper
+from .simple_debias import DebiasedViTWrapper
+from .denoising_vits import DenoisingViTWrapper
+
+# Import alibi module to trigger all ALiBi WrapperRegistry registrations
+from .alibi import MODEL_LIST
+from . import alibi

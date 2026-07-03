@@ -1,7 +1,7 @@
 import torch
 from math import ceil
 
-from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
+from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST
 from dinosaw.utils import load_image, closest_crop, do_2D_pca, to_numpy
 
 from functools import lru_cache

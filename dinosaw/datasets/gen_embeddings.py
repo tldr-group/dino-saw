@@ -6,19 +6,20 @@ from os import makedirs
 from PIL import Image
 
 from dinosaw.datasets.translate_featurise import translate_featurise
-from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
+from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST
+from PVW import WrapperRegistry
 from dinosaw.utils import closest_crop, convert_image, closest_resize, to_img, unnormalize
 
 from typing import cast
 from time import time
 
 FOLDER_NAME = "data"
-DEVICE = "cuda:1"
-NAME = "IN_reduced_dv3"
+NAME = "coco"
+DEVICE = "cuda:0"
+STRIDE = 16
 IMG_L = 224
 N_VAL = 2600
 HOMOGENISE = False
-STRIDE = 16
 
 np.random.seed(10001)
 torch.random.manual_seed(10001)
@@ -33,12 +34,9 @@ for split in ("train", "val"):
     for which in ("imgs", "embeddings"):
         makedirs(f"{FOLDER_NAME}/{NAME}_{IMG_L}/{split}/{which}/", exist_ok=True)
 
-dv2 = PretrainedViTWrapper(
-    MODEL_LIST[-1],
-    stride=STRIDE,
-    add_flash_attn=False,
+dv2 = WrapperRegistry.build(
+    "EUPE_s",
     device=DEVICE,
-    chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
 )
 dv2 = dv2.eval()
 

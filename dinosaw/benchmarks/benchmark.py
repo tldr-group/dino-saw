@@ -25,9 +25,9 @@ from dinosaw.datasets.benchmark_datasets import (
     Satellites,
 )
 import dinosaw.utils as utils
-from dinosaw.models.DPT_head import DPTHead
-from dinosaw.models.alibi import AlibiSlopeType
-from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper
+from dinosaw.wrappers.DPT_head import DPTHead
+from dinosaw.alibi_logic import AlibiSlopeType
+from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
 from dinosaw.utils import seed_everything, closest_resize
 import time
 
@@ -175,48 +175,68 @@ def get_model(
     stride: int = 14,
     chk_path: str | None = None,
 ) -> nn.Module:
-    match model_type:
-        case "base":
-            model = PretrainedViTWrapper(
-                vit_model_type,
-                stride=stride,
-                add_flash_attn=False,
-                device=device,
-                checkpoint_path=chk_path,
-            )
-        case "plus_alibi":
-            model = AlibiVitWrapper(
-                vit_model_type,
-                stride=stride,
-                add_flash_attn=False,
-                device=device,
-                slope_type=alibi_slope_type,
-                normalize=norm_alibi,
-                wrap=wrap_alibi,
-                checkpoint_path=chk_path,
-            )
-        case _:
-            raise Exception(f"Unsupported model type {model_type}")
+    is_dinov3 = "dv3" in vit_model_type or "dinov3" in vit_model_type
+
+    from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
+    from PVW.factory import BackboneConfig, BackboneRegistry
+    from functools import partial
+    from dinosaw.wrappers.alibi import add_alibi
+
+    arch_name = None
+    for k, v in ARCHS_TO_TIMM_IDS.items():
+        if v == vit_model_type:
+            arch_name = k
+            break
+    if arch_name is None:
+        for k, v in ARCHS_TO_LOCAL_IDS.items():
+            if v == vit_model_type:
+                arch_name = k
+                break
+    if arch_name is None:
+        arch_name = vit_model_type
+
+    backbone_type = "torch_hub" if is_dinov3 else "timm"
+    cfg = BackboneConfig(
+        backbone_type=backbone_type,
+        model_arch=arch_name,  # type: ignore
+        pretrained=True,
+        checkpoint_path=chk_path,
+        model_conf_path="dinov3" if is_dinov3 else None,
+        stride=(stride, stride),
+    )
+
+    if model_type == "plus_alibi":
+        mod = partial(
+            add_alibi,
+            slope_type=alibi_slope_type,
+            n_reg_tokens=4,
+            metric="euclidean",
+            normalize=norm_alibi,
+            wrap=wrap_alibi,
+            add_cls=True,
+            jitter_mag=0.0,
+        )
+        cfg.modifications.append(mod)
+
+    vit = BackboneRegistry.build(cfg)
+    model = PretrainedViTWrapper(vit=vit, device=device)
+    model.set_alibi_enabled = lambda enabled: None
 
     if freeze_abs_pos_emb or zero_pos_emb:
-        # assert model.model.pos_embed is not None
-        if "dv3" in vit_model_type or "dinov3" in vit_model_type:
+        if is_dinov3:
             pass
         else:
-            model.model.pos_embed.requires_grad = False  # freeze pos embedding
+            if hasattr(model.vit, "pos_embed") and model.vit.pos_embed is not None:
+                model.vit.pos_embed.requires_grad = False  # freeze pos embedding
 
     if zero_pos_emb:
-        # assert model.model.pos_embed is not None
-        if "dv3" in vit_model_type or "dinov3" in vit_model_type:
+        if is_dinov3:
             print("dinov3, zeroing rope_embed")
-            model.model.rope_embed = None
+            if hasattr(model.vit, "rope_embed"):
+                model.vit.rope_embed = None
         else:
-            model.model.pos_embed.data.zero_()
-
-    if model_type == "plus_alibi" and n_epochs_warmup <= 0:
-        model.set_alibi_enabled(True)
-    elif model_type == "plus_alibi" and n_epochs_warmup > 0:
-        model.set_alibi_enabled(False)
+            if hasattr(model.vit, "pos_embed") and model.vit.pos_embed is not None:
+                model.vit.pos_embed.data.zero_()
 
     if existing_checkpoint is not None:
         print(f"Loading existing checkpoint from {existing_checkpoint}")

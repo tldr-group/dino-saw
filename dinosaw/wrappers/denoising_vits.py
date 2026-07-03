@@ -7,7 +7,7 @@ import torch.nn as nn
 from timm.layers import resample_abs_pos_embed
 from timm.models.vision_transformer import Block, Mlp
 
-from dinosaw.models.vit_wrapper import PretrainedViTWrapper
+from PVW import PretrainedViTWrapper, WrapperRegistry, WrapperConfig, BackboneConfig
 
 
 class DenoisingViT(nn.Module):
@@ -70,17 +70,16 @@ class DenoisingViT(nn.Module):
         class_tokens = None
         if self.vit is not None:
             with torch.no_grad():
-                # (B, C, H, W)
-                vit_outputs = self.vit.get_intermediate_layers(
+                # get_intermediate_layers in PVW returns NCHW formatted features if make_2D=True
+                # let's call forward_intermediates from the vit wrapper
+                # which returns a list of [B, C, H, W] tensors if make_2D=True
+                vit_outputs = self.vit.forward_intermediates(
                     x,
-                    n=[self.vit.last_layer_index],
-                    return_prefix_tokens=return_class_token,
+                    n=[self.vit.num_blocks - 1],
+                    make_2D=True,
                     norm=norm,
                 )
-                if return_class_token:
-                    vit_outputs = vit_outputs[-1]
-                    class_tokens = vit_outputs[1][:, 0]
-                original_feats = vit_outputs[0].permute(0, 2, 3, 1)
+                original_feats = vit_outputs[0].permute(0, 2, 3, 1)  # [B, H, W, C]
                 x = original_feats
         else:
             original_feats = x.clone()
@@ -122,28 +121,31 @@ class DenoisingViT(nn.Module):
 class DenoisingViTWrapper(PretrainedViTWrapper):
     def __init__(
         self,
+        vit,
+        device: torch.device | str,
         denoiser_path: str | None = None,
-        model_identifier: str = "vit_base_patch14_dinov2.lvd142m",
-        stride: int = 14,
-        add_flash_attn: bool = True,
-        dynamic_img_size: bool = True,
-        dynamic_img_pad: bool = False,
-        device: str = "cpu",
         **kwargs,
     ):
-        super().__init__(model_identifier, stride, add_flash_attn, dynamic_img_size, dynamic_img_pad, device, **kwargs)
+        super().__init__(vit=vit, device=device, **kwargs)
         self.denoiser = get_denoiser(denoiser_path, device=device, to_eval=True)
 
-    def forward_features(self, x: torch.Tensor, make_2D: bool = False, add_reg: bool = False) -> torch.Tensor:
-        feats = super().forward_features(x, make_2D, add_reg)
+    def forward_features(
+        self,
+        x: torch.Tensor,
+        make_2D: bool = True,
+    ) -> torch.Tensor:
+        # Extract features with make_2D=True as denoiser expects 4D NCHW tensor
+        feats = super().forward_features(x, make_2D=True)
         denoised = self.denoiser.forward_(feats, permute_channel=True, return_channel_first=True)
+        if not make_2D:
+            b, c, h, w = denoised.shape
+            denoised = denoised.view(b, c, h * w)
         return denoised
 
 
 def get_denoiser(
     chk_path: str | None, device: str = "cpu", to_eval: bool = False, to_half: bool = False
 ) -> DenoisingViT:
-    # Load model (plus weights) from a checkpoint OR initialse empty model
     model = DenoisingViT(feat_dim=384)
     if chk_path is not None:
         obj = torch.load(chk_path, weights_only=True, map_location=device)
@@ -154,3 +156,13 @@ def get_denoiser(
     if to_half:
         model = model.half()
     return model
+
+
+# Register Denoising ViT
+WrapperRegistry.register(
+    "dvt",
+    WrapperConfig(
+        backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s"),
+        wrapper_class=DenoisingViTWrapper,
+    ),
+)

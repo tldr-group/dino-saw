@@ -187,7 +187,7 @@ def visualise_segmentation(
 
 if __name__ == "__main__":
     from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
-    from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper
+    from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
 
     DEVICE = "cuda:0"
     dv2 = PretrainedViTWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)

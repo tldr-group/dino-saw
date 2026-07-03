@@ -1,36 +1,16 @@
 import torch
-from dinosaw.models.vit_wrapper import MODEL_LIST, PretrainedViTWrapper, AlibiVitWrapper, AlibiDV3Wrapper
+from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
+from PVW import WrapperRegistry
 from dinosaw.utils import load_image, do_2D_pca, to_numpy, closest_resize
 
 from PIL import Image
 import matplotlib.pyplot as plt
 
-# model = AlibiVitWrapper(
-#     # MODEL_LIST[1],
-#     stride=14,
-#     # add_flash_attn=False,
-#     device="cuda:0",
-#     slope_type="constant",
-#     normalize=True,
-#     wrap=True,
-#     # chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
-#     # conf_path="dinov3",
-#     add_flash_attn=False,
-#     n_reg_tokens=4,
-# )
-model = AlibiDV3Wrapper(
-    # MODEL_LIST[1],
-    stride=16,
-    # add_flash_attn=False,
+model = WrapperRegistry.build(
+    "alibi_dv3",
     device="cuda:0",
-    slope_type="constant",
-    normalize=True,
-    wrap=True,
-    chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
-    conf_path="dinov3",
-    add_flash_attn=False,
-    n_reg_tokens=4,
-    skip_overwrite=False,  # don't convert attention, since the loaded weights are already for an ALiBi model
+    checkpoint_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
+    model_conf_path="dinov3",
 )
 model.to("cuda:0")
 

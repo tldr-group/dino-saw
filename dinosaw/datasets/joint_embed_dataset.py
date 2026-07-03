@@ -7,7 +7,7 @@ from random import randint, choice
 from glob import glob
 
 from dinosaw.utils import closest_resize_crop, load_image
-from dinosaw.models.vit_wrapper import PretrainedViTWrapper
+from dinosaw.wrappers import PretrainedViTWrapper
 
 
 from functools import partial
@@ -146,6 +146,7 @@ class JointEmbeddingDataset(OTFEmbeddingDataset):
 
         img_tr, embed_tr = self.get_transform()
 
+        fwd_img = img_tr(img)
         # enforce Tr(ALiBi(I)) = ViT(Tr(I))
         vit_emb = self.embed_model.forward_features(fwd_img.unsqueeze(0), True)
         target_emb = self.operate_on_channels(vit_emb.squeeze(0), self.channels_to_blank, False)
