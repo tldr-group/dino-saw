@@ -28,6 +28,7 @@ dependencies = [
   "scikit-learn>=1.6.1",
   "pillow>=11.2.0",
   "scikit-image>=0.25.2",
+  "tensorboard"
   ]
 
 [project.optional-dependencies]

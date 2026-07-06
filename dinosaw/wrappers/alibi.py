@@ -8,7 +8,7 @@ from dinosaw.alibi_logic import (
     convert_dv3_model,
     build_2d_sincos_pos_embed,
 )
-from PVW import PretrainedViTWrapper, WrapperRegistry, WrapperConfig, BackboneConfig
+from PVW import WrapperRegistry, WrapperConfig, BackboneConfig
 from PVW.types import satisfies_protocol, Dv3ViT
 
 
@@ -147,6 +147,7 @@ def register_alibi_model(
             backbone_cfg=BackboneConfig(
                 backbone_type=backbone_type,
                 model_arch=model_arch,  # type: ignore
+                pretrained=False,
                 remove_pos_embed=True,
                 modifications=[mod],
             )
