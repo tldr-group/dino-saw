@@ -10,12 +10,13 @@ ModelTypes = Literal[
     # New / standard notation
     "dinov2_s",
     "dinov3_s",
-    "nope",
+    "dinov3_s+",
+    "nope_dinov2_s",
     "sinusoid_dinov2_s",
     "debiased_dinov2_s",
-    "dvt",
+    "dvt_dinov2_s",
     "alibi_dinov2_s",
-    "alibi_dinov3_s",
+    "alibi_dinov3_s+",
     # Old notation
     "dv2",
     "dv3",
@@ -51,7 +52,7 @@ ModelTypes = Literal[
 MODEL_NAMES = {
     # New / standard notation
     "dinov2_s": "DINOv2",
-    "dinov3_s": "DINOv3",
+    "dinov3_s+": "DINOv3",
     "alibi_dinov2_s": "ALiBi-Dv2",
     "alibi_dinov3_s": "ALiBi-Dv3",
     "nope": "NoPE",
@@ -102,11 +103,12 @@ WrapperRegistry.register(
 
 # Register dinov3_s mapping to dinov3_s+ (with register and SwiGLU)
 WrapperRegistry.register(
-    "dinov3_s",
+    "dinov3_s+",
     WrapperConfig(
         backbone_cfg=BackboneConfig(
             backbone_type="torch_hub",
             model_arch="dinov3_s+",
+            pretrained=False,
             model_conf_path="dinov3",
         )
     ),
@@ -141,7 +143,7 @@ WrapperRegistry.register(
 
 # 7. Denoising ViT
 WrapperRegistry.register(
-    "dvt",
+    "dvt_dinov2_s",
     WrapperConfig(
         backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s"),
         wrapper_class=DenoisingViTWrapper,
@@ -158,7 +160,7 @@ register_alibi_model(
 )
 
 register_alibi_model(
-    "alibi_dinov3_s",
+    "alibi_dinov3_s+",
     "dinov3_s+",
     backbone_type="torch_hub",
     slope_type="constant",

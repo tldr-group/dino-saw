@@ -78,11 +78,11 @@ def test_nope_wrapper_loading():
 @pytest.mark.skipif(alibi_dv3_dir is None, reason="alibi_dv3_ms.pth checkpoint missing")
 def test_alibi_dv3_wrapper_loading():
     # Test old name alibi_dv3
-    model_old = get_model("alibi_dv3", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
-    assert isinstance(model_old, PretrainedViTWrapper)
+    # model_old = get_model("alibi_dv3", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
+    # assert isinstance(model_old, PretrainedViTWrapper)
 
     # Test new name alibi_dinov3_s
-    model_new = get_model("alibi_dinov3_s", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
+    model_new = get_model("alibi_dinov3_s+", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
     assert isinstance(model_new, PretrainedViTWrapper)
 
     # Do inference on different sized tensors

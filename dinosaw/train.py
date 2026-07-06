@@ -1,3 +1,4 @@
+from PVW.modifications import replace_pos_embed
 import torch
 from torch import nn, optim
 import numpy as np
@@ -8,6 +9,7 @@ from os import makedirs
 from shutil import rmtree
 from datetime import datetime
 from torch.utils.tensorboard.writer import SummaryWriter
+import logging
 
 from dinosaw.datasets.vis_dataset import visualise
 from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
@@ -19,8 +21,13 @@ from PVW.factory import BackboneConfig, BackboneRegistry
 from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
 from dinosaw.utils import seed_everything, closest_resize, closest_resize_crop
 
+from functools import partial
 from dataclasses import dataclass, field
 from typing import Literal
+
+logging.getLogger("PVW.utils").setLevel(logging.WARNING)
+# loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+# print(loggers)
 
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
@@ -37,7 +44,7 @@ class Config:
     img_l: int = 224
 
     model_type: ModelType = "base"
-    dino_chk_path: str | None = None
+    conf_path: str | None = None
     vit_model_type: str = MODEL_LIST[1]
     stride: int = 14
     pretrained: bool = True
@@ -48,7 +55,6 @@ class Config:
     alibi_slope_type: AlibiSlopeType = "constant"
     norm_alibi: bool = True
     wrap_alibi: bool = True
-    freeze_pos_emb: bool = True
     zero_pos_emb: bool = False
     jitter_mag: float = 0.0
 
@@ -56,7 +62,6 @@ class Config:
     channel_dup: bool = False
     do_random_roll: bool = False
 
-    n_epochs_warmup: int = 1
     n_epochs: int = 100
     batch_size: int = 256
     lr: float = 1e-4
@@ -74,14 +79,12 @@ def get_model(
     alibi_slope_type: AlibiSlopeType,
     norm_alibi: bool,
     wrap_alibi: bool,
-    n_epochs_warmup: int,
-    freeze_abs_pos_emb: bool,
     zero_pos_emb: bool,
     device: str | torch.device,
     existing_checkpoint: str | None = None,
     vit_model_type: str = MODEL_LIST[1],
     stride: int = 14,
-    chk_path: str | None = None,
+    conf_path: str | None = None,
     pretrained: bool = True,
     add_cls_token: bool = True,
     n_reg_tokens: int = 4,
@@ -90,7 +93,6 @@ def get_model(
 
     is_dinov3 = "dv3" in vit_model_type or "dinov3" in vit_model_type
     print(vit_model_type)
-
 
     arch_name = None
     for k, v in ARCHS_TO_TIMM_IDS.items():
@@ -110,8 +112,8 @@ def get_model(
         backbone_type=backbone_type,
         model_arch=arch_name,  # type: ignore
         pretrained=pretrained,
-        checkpoint_path=chk_path,
-        model_conf_path="dinov3" if is_dinov3 else None,
+        checkpoint_path=existing_checkpoint,
+        model_conf_path=conf_path,
         stride=(stride, stride),
     )
 
@@ -130,29 +132,11 @@ def get_model(
     elif model_type == "plus_sincos":
         cfg.modifications.append(replace_pe_with_sincos)
 
+    if zero_pos_emb:
+        cfg.modifications.append(partial(replace_pos_embed, new_pos_embed=None, requires_grad=False))
+
     vit = BackboneRegistry.build(cfg)
     model = PretrainedViTWrapper(vit=vit, device=device)
-    model.set_alibi_enabled = lambda enabled: None
-
-    if freeze_abs_pos_emb or zero_pos_emb or model_type == "nope":
-        if is_dinov3:
-            pass
-        else:
-            if hasattr(model.vit, "pos_embed") and model.vit.pos_embed is not None:
-                model.vit.pos_embed.requires_grad = False  # freeze pos embedding
-
-    if zero_pos_emb or model_type == "nope":
-        if is_dinov3:
-            print("dinov3, zeroing rope_embed")
-            if hasattr(model.vit, "rope_embed"):
-                model.vit.rope_embed = None
-        else:
-            if hasattr(model.vit, "pos_embed") and model.vit.pos_embed is not None:
-                model.vit.pos_embed.data.zero_()
-
-    if existing_checkpoint is not None:
-        print(f"Loading existing checkpoint from {existing_checkpoint}")
-        model.load_state_dict(torch.load(existing_checkpoint, map_location=device, weights_only=True))
 
     return model
 
@@ -219,13 +203,11 @@ def get_ds(cfg: Config, device: str) -> tuple[Dataset, Dataset]:
             "constant",
             False,
             False,
-            -1,
-            False,
             False,
             device,
             stride=cfg.stride,
             vit_model_type=cfg.vit_model_type,
-            chk_path=cfg.dino_chk_path,
+            conf_path=cfg.conf_path,
         )
         embed_model.eval()
         embed_model = embed_model.to(device)
@@ -330,32 +312,30 @@ seed_everything(SEED)
 IMG_L = 224
 CACHE = False
 cfg = Config(
-    experiment_name="dv2_raster_fixed",
+    experiment_name="alibi_dv2_no_norm",
     ds_type="otf_coco",
     ds_path="../JAFAR/data/COCOStuff/dataset/images",
     img_l=IMG_L,
-    model_type="plus_sincos",
-    vit_model_type=MODEL_LIST[1],
+    model_type="plus_alibi",
+    vit_model_type="dinov2_s",
     stride=14,
-    zero_pos_emb=False,
-    freeze_pos_emb=True,
+    zero_pos_emb=True,
     alibi_slope_type="constant",
-    norm_alibi=True,
+    norm_alibi=False,
     wrap_alibi=True,
     jitter_mag=0.0,
-    n_epochs=15,
+    n_epochs=10,
     batch_size=256,
     # channels_to_blank=[47, 113, 117, 359],
     channel_dup=False,
     do_random_roll=False,
     loss_type="cosine",
-    n_epochs_warmup=-1,
     lr=1e-4,
     pretrained=True,
     add_cls_token=True,
     n_reg_tokens=4,
     save_per=1,
-    # dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
+    # conf_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
     # existing_checkpoint="experiments/20260127_1554/best_model.pth",
 )
 # Multiscale training config
@@ -432,14 +412,12 @@ model = get_model(
     cfg.alibi_slope_type,
     cfg.norm_alibi,
     cfg.wrap_alibi,
-    cfg.n_epochs_warmup,
-    cfg.freeze_pos_emb,
     cfg.zero_pos_emb,
     DEVICE,
     cfg.existing_checkpoint,
     cfg.vit_model_type,
     cfg.stride,
-    cfg.dino_chk_path,
+    cfg.conf_path,
     cfg.pretrained,
     cfg.add_cls_token,
     cfg.n_reg_tokens,
@@ -455,10 +433,6 @@ best_val_loss = 1e6
 
 
 for epoch in range(cfg.n_epochs):
-    if epoch == cfg.n_epochs_warmup:
-        print("Enabling Alibi")
-        model.set_alibi_enabled(True)
-
     train_loss = 0.0
     batch: torch.Tensor
     N_batches = len(train_dl)
@@ -489,7 +463,7 @@ for epoch in range(cfg.n_epochs):
 
     if val_loss < best_val_loss:
         best_val_loss = val_loss
-        torch.save(model.state_dict(), f"{EXPR_PATH}/best_model.pth")
+        torch.save(model.vit.state_dict(), f"{EXPR_PATH}/best_model.pth")
 
     writer.add_scalar("loss/train", train_loss, epoch)
     writer.add_scalar("loss/val", val_loss, epoch)
