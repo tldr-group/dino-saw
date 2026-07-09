@@ -64,6 +64,7 @@ class Config:
     save_per: int = 2
 
     existing_checkpoint: str | None = None
+    backbone_checkpoint: str | None = None
 
     lp_interval: float = -1
     lp_homog_micros_path: str = "data/linear_probe/homog_micros"
@@ -104,10 +105,11 @@ def get_model(
         arch_name = vit_model_type
 
     backbone_type = "torch_hub" if is_dinov3 else "timm"
+    pretrained = False if is_dinov3 else pretrained
     cfg = BackboneConfig(
         backbone_type=backbone_type,
         model_arch=arch_name,  # type: ignore
-        pretrained=False,
+        pretrained=pretrained,
         checkpoint_path=existing_checkpoint,
         model_conf_path=conf_path,
         stride=(stride, stride),
@@ -201,6 +203,8 @@ def get_ds(cfg: Config, device: str, cache: bool = False) -> tuple[Dataset, Data
             False,
             False,
             device,
+            pretrained=True,
+            existing_checkpoint=cfg.backbone_checkpoint,
             stride=cfg.stride,
             vit_model_type=cfg.vit_model_type,
             conf_path=cfg.conf_path,
