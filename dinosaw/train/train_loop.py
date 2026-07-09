@@ -185,6 +185,7 @@ model = get_model(
     cfg.zero_pos_emb,
     DEVICE,
     cfg.existing_checkpoint,
+    cfg.backbone_checkpoint,
     cfg.vit_model_type,
     cfg.stride,
     cfg.conf_path,
