@@ -130,14 +130,16 @@ def register_alibi_model(
     n_reg_tokens: int = 4,
     add_cls: bool = True,
     jitter_mag: float = 0.0,
+    wrap: bool = True,
+    normalize: bool = True,
 ):
     mod = partial(
         add_alibi,
         slope_type=slope_type,
         n_reg_tokens=n_reg_tokens,
         metric="euclidean",
-        normalize=True,
-        wrap=True,
+        normalize=normalize,
+        wrap=wrap,
         add_cls=add_cls,
         jitter_mag=jitter_mag,
     )

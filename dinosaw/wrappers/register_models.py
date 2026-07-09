@@ -160,6 +160,45 @@ register_alibi_model(
 )
 
 register_alibi_model(
+    "alibi_dinov2_s_no_wrap",
+    "dinov2_s",
+    slope_type="constant",
+    n_reg_tokens=4,
+    add_cls=True,
+    wrap=False,
+)
+register_alibi_model(
+    "alibi_dinov2_s_no_norm",
+    "dinov2_s",
+    slope_type="constant",
+    n_reg_tokens=4,
+    add_cls=True,
+    wrap=True,
+    normalize=False,
+)
+
+register_alibi_model(
+    "alibi_dinov2_s_no_norm_no_wrap",
+    "dinov2_s",
+    slope_type="constant",
+    n_reg_tokens=4,
+    add_cls=True,
+    wrap=False,
+    normalize=False,
+)
+
+register_alibi_model(
+    "alibi_dinov2_s_no_norm_wrap",
+    "dinov2_s",
+    slope_type="constant",
+    n_reg_tokens=4,
+    add_cls=True,
+    wrap=True,
+    normalize=False,
+)
+
+
+register_alibi_model(
     "alibi_dinov3_s+",
     "dinov3_s+",
     backbone_type="torch_hub",
