@@ -312,7 +312,7 @@ seed_everything(SEED)
 IMG_L = 224
 CACHE = False
 cfg = Config(
-    experiment_name="alibi_dv2_no_norm",
+    experiment_name="alibi_dv2_no_norm_wrap_more_cb",
     ds_type="otf_coco",
     ds_path="../JAFAR/data/COCOStuff/dataset/images",
     img_l=IMG_L,
@@ -324,9 +324,9 @@ cfg = Config(
     norm_alibi=False,
     wrap_alibi=True,
     jitter_mag=0.0,
-    n_epochs=10,
+    n_epochs=9,
     batch_size=256,
-    # channels_to_blank=[47, 113, 117, 359],
+    channels_to_blank=[47, 55, 89, 113, 117, 228, 359],
     channel_dup=False,
     do_random_roll=False,
     loss_type="cosine",
@@ -342,36 +342,34 @@ cfg = Config(
 # IMG_L = 518
 # CACHE = False
 # cfg = Config(
-#     experiment_name="dv3_coco_quarter_ms",
+#     experiment_name="alibi_dv2_no_norm_wrap_more_cb_ms",
 #     ds_type="otf_coco",
 #     ds_path="../JAFAR/data/COCOStuff/dataset/images",
 #     img_l=IMG_L,
 #     model_type="plus_alibi",
-#     vit_model_type=MODEL_LIST[4],
-#     stride=16,
+#     vit_model_type="dinov2_s",
+#     stride=14,
 #     zero_pos_emb=True,
-#     freeze_pos_emb=True,
 #     alibi_slope_type="constant",
-#     norm_alibi=True,
+#     norm_alibi=False,
 #     wrap_alibi=True,
 #     jitter_mag=0.00,
 #     n_epochs=1,
 #     batch_size=32,
 #     pretrained=True,
-#     # channels_to_blank=[47, 113, 117, 359],
+#     channels_to_blank=[47, 55, 89, 113, 117, 228, 359],
 #     do_random_roll=False,
 #     loss_type="cosine",
-#     n_epochs_warmup=-1,
 #     lr=1e-5,
 #     add_cls_token=True,
 #     n_reg_tokens=4,
-#     dino_chk_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
-#     existing_checkpoint="experiments/current/20260506_2004_dv3_coco/e3.pth",
+#     # conf_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
+#     existing_checkpoint="experiments/ablations/20260708_1420_alibi_dv2_no_norm_wrap_more_cb/best_model.pth",
 #     save_per=1,
 # )
 print(cfg)
 
-EXPR_PATH = f"experiments/current/{datetime.now().strftime('%Y%m%d_%H%M')}_{cfg.experiment_name}"
+EXPR_PATH = f"experiments/ablations/{datetime.now().strftime('%Y%m%d_%H%M')}_{cfg.experiment_name}"
 try:
     rmtree(EXPR_PATH)
 except FileNotFoundError:
