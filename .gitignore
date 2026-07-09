@@ -230,3 +230,6 @@ AG_plots/
 minepy/
 
 models/*
+
+
+*.pkl

@@ -13,17 +13,12 @@ ModelTypes = Literal[
     "dinov3_s+",
     "nope_dinov2_s",
     "sinusoid_dinov2_s",
+    "cb_dinov2_s",
+    "tr_dinov2_s",
     "debiased_dinov2_s",
     "dvt_dinov2_s",
     "alibi_dinov2_s",
     "alibi_dinov3_s+",
-    # Old notation
-    "dv2",
-    "dv3",
-    "sinusoid_dv2",
-    "dv2_db",
-    "alibi_dv2",
-    "alibi_dv3",
     # Others
     "dinov2_b",
     "dino_s",
@@ -39,13 +34,8 @@ ModelTypes = Literal[
     "vit_t_in",
     "classical",
     # Commented out variants
-    "alibi_dinov2_s_h",
-    "alibi_dinov2_s_cb",
-    "alibi_dinov2_s_cb_s_l",
-    "alibi_dinov2_s_cb_nr_l",
-    "alibi_dinov2_s_cb_l_j",
-    "alibi_dinov2_s_coco",
-    "alibi_dinov2_s_coco_e1",
+    "alibi_dinov2_s_no_norm_no_wrap",
+    "alibi_dinov2_s_no_norm_wrap",
 ]
 
 # 2. Name lookup mapping
@@ -142,6 +132,13 @@ WrapperRegistry.register(
 )
 
 # 7. Denoising ViT
+WrapperRegistry.register(
+    "dvt",
+    WrapperConfig(
+        backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s"),
+        wrapper_class=DenoisingViTWrapper,
+    ),
+)
 WrapperRegistry.register(
     "dvt_dinov2_s",
     WrapperConfig(

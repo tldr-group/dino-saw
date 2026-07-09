@@ -1,7 +1,61 @@
 import torch
+from torch import Tensor
 import torch.nn.functional as F
 from torchvision.transforms.functional import normalize
-from PVW import PretrainedViTWrapper, WrapperRegistry, WrapperConfig, BackboneConfig
+
+from PIL import Image
+
+from PVW import PretrainedViTWrapper
+from PVW.wrapper import closest_resize
+from PVW.types import ViTBackbone, ImageTransform, Architectures
+
+
+class ChannelBlankedWrapper(PretrainedViTWrapper):
+    def __init__(
+        self,
+        vit: ViTBackbone,
+        device: torch.device | str,
+        dtype: torch.dtype | None = None,
+        channels_to_blank: list[int] | None = None,
+        transform: ImageTransform = closest_resize,
+        name: str = "",
+        arch_name: Architectures | None = None,
+    ):
+        super().__init__(
+            vit=vit,
+            device=device,
+            dtype=dtype,
+            transform=transform,
+            name=name,
+            arch_name=arch_name,
+        )
+        self.channels_to_blank = channels_to_blank
+
+    def forward_features(
+        self,
+        x: Tensor | Image.Image | list[Image.Image],
+        make_2D: bool = True,
+    ) -> Tensor:
+        f = super().forward_features(x, make_2D=make_2D)
+
+        if self.channels_to_blank is not None:
+            f[:, self.channels_to_blank] = 0.0
+        return f
+
+
+class TransformAverageWrapper(PretrainedViTWrapper):
+    def forward_features(self, x: Tensor | Image.Image | list[Image.Image], make_2D: bool = True) -> Tensor:
+        x_t: Tensor = self.preprocess_input(x)
+        x_flip_lr = torch.flip(x_t, dims=[3])
+        x_flip_ud = torch.flip(x_t, dims=[2])
+        x_rot_90 = torch.rot90(x_t, k=1, dims=[2, 3])
+
+        f = super().forward_features(x_t, make_2D=make_2D)
+        for tr_input in [x_flip_lr, x_flip_ud, x_rot_90]:
+            f += super().forward_features(tr_input, make_2D=make_2D)
+        f /= 4.0
+
+        return f
 
 
 class DebiasedViTWrapper(PretrainedViTWrapper):
@@ -43,6 +97,3 @@ class DebiasedViTWrapper(PretrainedViTWrapper):
             X_deb = F.normalize(X_deb, p=2, dim=1)
 
         return X_deb
-
-
-
