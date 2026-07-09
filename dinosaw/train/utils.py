@@ -1,33 +1,26 @@
-from PVW.modifications import replace_pos_embed
 import torch
 from torch import nn, optim
+from torch.utils.data import Dataset
 import numpy as np
+from PIL import Image
 
-from torch.utils.data import DataLoader, Dataset
+from os import listdir
 
-from os import makedirs
-from shutil import rmtree
-from datetime import datetime
-from torch.utils.tensorboard.writer import SummaryWriter
-import logging
-
-from dinosaw.datasets.vis_dataset import visualise
 from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
 from dinosaw.datasets.joint_embed_dataset import JointEmbeddingDataset, OTFEmbeddingDataset
 from dinosaw.alibi_logic import AlibiSlopeType
+from dinosaw.linear_probe import do_linear_probe
 from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
 from dinosaw.wrappers.alibi import add_alibi, replace_pe_with_sincos
+from PVW.modifications import replace_pos_embed
 from PVW.factory import BackboneConfig, BackboneRegistry
 from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
-from dinosaw.utils import seed_everything, closest_resize, closest_resize_crop
+from dinosaw.utils import closest_resize, closest_resize_crop, to_numpy
 
 from functools import partial
 from dataclasses import dataclass, field
 from typing import Literal
 
-logging.getLogger("PVW.utils").setLevel(logging.WARNING)
-# loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-# print(loggers)
 
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
@@ -62,7 +55,7 @@ class Config:
     channel_dup: bool = False
     do_random_roll: bool = False
 
-    n_epochs: int = 100
+    n_epochs: int | float = 10
     batch_size: int = 256
     lr: float = 1e-4
     optim: Optims = "AdamW"
@@ -71,6 +64,9 @@ class Config:
     save_per: int = 2
 
     existing_checkpoint: str | None = None
+
+    lp_interval: float = -1
+    lp_homog_micros_path: str = "data/linear_probe/homog_micros"
 
 
 # TODO: make the wrapeprs take in various params; cache slope type etc on AlibiVitWrapper
@@ -111,7 +107,7 @@ def get_model(
     cfg = BackboneConfig(
         backbone_type=backbone_type,
         model_arch=arch_name,  # type: ignore
-        pretrained=pretrained,
+        pretrained=False,
         checkpoint_path=existing_checkpoint,
         model_conf_path=conf_path,
         stride=(stride, stride),
@@ -170,7 +166,7 @@ def get_loss(loss_type: Losses, reduction: str = "mean"):
             raise Exception(f"Unsupported loss {loss_type}")
 
 
-def get_ds(cfg: Config, device: str) -> tuple[Dataset, Dataset]:
+def get_ds(cfg: Config, device: str, cache: bool = False) -> tuple[Dataset, Dataset]:
 
     train_ds: Dataset
     val_ds: Dataset
@@ -181,7 +177,7 @@ def get_ds(cfg: Config, device: str) -> tuple[Dataset, Dataset]:
             cfg.ds_path,
             "train",
             transform=tr,
-            store_in_memory=CACHE,
+            store_in_memory=cache,
             channels_to_blank=cfg.channels_to_blank,
             channel_dup=cfg.channel_dup,
             do_random_roll=cfg.do_random_roll,
@@ -190,7 +186,7 @@ def get_ds(cfg: Config, device: str) -> tuple[Dataset, Dataset]:
             cfg.ds_path,
             "val",
             transform=tr,
-            store_in_memory=CACHE,
+            store_in_memory=cache,
             channels_to_blank=cfg.channels_to_blank,
             channel_dup=cfg.channel_dup,
             do_random_roll=cfg.do_random_roll,
@@ -268,223 +264,68 @@ def get_ds(cfg: Config, device: str) -> tuple[Dataset, Dataset]:
         return (train_ds, val_ds)
 
 
-def feed_batch_get_loss(
-    model: PretrainedViTWrapper,
-    optimizer: optim.Optimizer,
-    loss_fn,
-    batch: torch.Tensor,
-    training: bool,
-    device: str = "cuda",
-    dataset_type: DatasetType = "direct",
-) -> float:
-
-    if dataset_type == "joint":
-        x, y_true, tr = batch
-    else:
-        x, y_true = batch
-
-    x = x.to(device)
-    y_true = y_true.to(device)
-    if training:
-        model.train()
-        optimizer.zero_grad()
-    else:
-        model.eval()
-    with torch.set_grad_enabled(training):
-        y_pred = model.forward_features(x, make_2D=True)
-        if dataset_type == "joint":
-            y_pred = torch.stack([tr_(i) for tr_, i in zip(tr, y_pred)])
-
-        loss = loss_fn(y_pred, y_true)
-        if training:
-            loss.backward()
-            optimizer.step()
-    x = x.to("cpu")
-    y_true = y_true.to("cpu")
-    y_pred = y_pred.to("cpu")
-    return loss.item()
-
-
-SEED = 1025
-N_VIS = 32
-seed_everything(SEED)
-
-IMG_L = 224
-CACHE = False
-cfg = Config(
-    experiment_name="alibi_dv2_no_norm_wrap_more_cb",
-    ds_type="otf_coco",
-    ds_path="../JAFAR/data/COCOStuff/dataset/images",
-    img_l=IMG_L,
-    model_type="plus_alibi",
-    vit_model_type="dinov2_s",
-    stride=14,
-    zero_pos_emb=True,
-    alibi_slope_type="constant",
-    norm_alibi=False,
-    wrap_alibi=True,
-    jitter_mag=0.0,
-    n_epochs=9,
-    batch_size=256,
-    channels_to_blank=[47, 55, 89, 113, 117, 228, 359],
-    channel_dup=False,
-    do_random_roll=False,
-    loss_type="cosine",
-    lr=1e-4,
-    pretrained=True,
-    add_cls_token=True,
-    n_reg_tokens=4,
-    save_per=1,
-    # conf_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
-    # existing_checkpoint="experiments/20260127_1554/best_model.pth",
-)
-# Multiscale training config
-# IMG_L = 518
-# CACHE = False
-# cfg = Config(
-#     experiment_name="alibi_dv2_no_norm_wrap_more_cb_ms",
-#     ds_type="otf_coco",
-#     ds_path="../JAFAR/data/COCOStuff/dataset/images",
-#     img_l=IMG_L,
-#     model_type="plus_alibi",
-#     vit_model_type="dinov2_s",
-#     stride=14,
-#     zero_pos_emb=True,
-#     alibi_slope_type="constant",
-#     norm_alibi=False,
-#     wrap_alibi=True,
-#     jitter_mag=0.00,
-#     n_epochs=1,
-#     batch_size=32,
-#     pretrained=True,
-#     channels_to_blank=[47, 55, 89, 113, 117, 228, 359],
-#     do_random_roll=False,
-#     loss_type="cosine",
-#     lr=1e-5,
-#     add_cls_token=True,
-#     n_reg_tokens=4,
-#     # conf_path="trained_models/dinov3_vits_patch16_plus_reg4.pth",
-#     existing_checkpoint="experiments/ablations/20260708_1420_alibi_dv2_no_norm_wrap_more_cb/best_model.pth",
-#     save_per=1,
-# )
-print(cfg)
-
-EXPR_PATH = f"experiments/ablations/{datetime.now().strftime('%Y%m%d_%H%M')}_{cfg.experiment_name}"
-try:
-    rmtree(EXPR_PATH)
-except FileNotFoundError:
-    pass
-makedirs(EXPR_PATH, exist_ok=True)
-
-writer = SummaryWriter(EXPR_PATH)
-# writer.add_hparams(cfg.__dict__, {})
-writer.add_text("desc", cfg.experiment_name)
-
-DEVICE: str = "cuda:1"
-
-
-train_ds, val_ds = get_ds(cfg, DEVICE)
-
-print(f"Train dataset size: {len(train_ds)}")
-print(f"Validation dataset size: {len(val_ds)}")
-
-
-def my_collate(batch):
-    # batch is a list of tuples/dicts from __getitem__
-    x = [item[0] for item in batch]
-    y = [item[1] for item in batch]
-    funcs = [item[2] for item in batch]
-
-    # Manually stack the data, but keep functions as a raw list
-    return torch.stack(x), torch.stack(y), funcs
-
-
-train_dl = DataLoader(train_ds, cfg.batch_size, True, drop_last=True)
-val_dl = DataLoader(val_ds, cfg.batch_size, True, drop_last=True)
-
-
-# model = AlibiVitWrapper(MODEL_LIST[1], add_flash_attn=False, device=DEVICE)
-# model.set_alibi_enabled(False)
-model = get_model(
-    cfg.model_type,
-    cfg.alibi_slope_type,
-    cfg.norm_alibi,
-    cfg.wrap_alibi,
-    cfg.zero_pos_emb,
-    DEVICE,
-    cfg.existing_checkpoint,
-    cfg.vit_model_type,
-    cfg.stride,
-    cfg.conf_path,
-    cfg.pretrained,
-    cfg.add_cls_token,
-    cfg.n_reg_tokens,
-    cfg.jitter_mag,
-)
-
-optimizer = get_optim(cfg.optim, model, cfg.lr)
-loss_fn = get_loss(cfg.loss_type)
-
-train_losses: list[float] = []
-val_losses: list[float] = []
-best_val_loss = 1e6
-
-
-for epoch in range(cfg.n_epochs):
-    train_loss = 0.0
-    batch: torch.Tensor
-    N_batches = len(train_dl)
-    for i, batch in enumerate(train_dl):
-        loss = feed_batch_get_loss(
-            model, optimizer, loss_fn, batch, training=True, device=DEVICE, dataset_type=cfg.ds_type
-        )
-
-        train_loss += loss
-        if i % 50 == 0:
-            print(f"Train batch {i}/{N_batches} | Loss: {loss:.4f}")
-
-        # if i == N_batches // 4:
-        #     break
-
-    train_loss /= len(train_dl)
-    val_loss = 0.0
-
-    for j, batch in enumerate(val_dl):
-        loss = feed_batch_get_loss(
-            model, optimizer, loss_fn, batch, training=False, device=DEVICE, dataset_type=cfg.ds_type
-        )
-        val_loss += loss
-        if j % 50 == 0:
-            print(f"Train batch {j}/{N_batches} | Loss: {loss:.4f}")
-
-    val_loss /= len(val_dl)
-
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        torch.save(model.vit.state_dict(), f"{EXPR_PATH}/best_model.pth")
-
-    writer.add_scalar("loss/train", train_loss, epoch)
-    writer.add_scalar("loss/val", val_loss, epoch)
-
-    print(f"Epoch {epoch:04d}/{cfg.n_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
-
-    if epoch % cfg.save_per == 0:
-        if cfg.ds_type == "joint":
-            x, y_true, tr = batch
+def serialize_hparams(cfg_dict):
+    serialized = {}
+    for k, v in cfg_dict.items():
+        if isinstance(v, (int, float, bool, str)):
+            serialized[k] = v
+        elif v is None:
+            serialized[k] = "None"
+        elif isinstance(v, (list, tuple)):
+            serialized[k] = ",".join(map(str, v))
         else:
-            x, y_true = batch
-        x = x[:N_VIS].to(DEVICE)
-        y_true = y_true[:N_VIS].to(DEVICE)
-        with torch.no_grad():
-            y_pred = model.forward_features(x, make_2D=True)
+            serialized[k] = str(v)
+    return serialized
 
-        if cfg.ds_type == "joint":
-            x = torch.stack([tr_(i) for tr_, i in zip(tr[:N_VIS], x)])
 
-        vis_img = visualise(x, y_true, y_pred, "tmp/val_vis.png")
-        vis_img_arr = np.array(vis_img).transpose(2, 0, 1)
-        writer.add_image("vis/val_batch", vis_img_arr, epoch)
+def get_linear_probe_images(path: str) -> list[Image.Image]:
+    lp_images = []
+    img_files = sorted(listdir(path))
+    for f in img_files:
+        if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")):
+            img_path = f"{path}/{f}"
+            try:
+                img = Image.open(img_path).convert("RGB")
+                lp_images.append(img)
+            except Exception as e:
+                print(f"Failed to load image {img_path}: {e}")
+    return lp_images
 
-        x = x.to("cpu")
-        y_true = y_true.to("cpu")
-        y_pred = y_pred.to("cpu")
+
+def evaluate_linear_probe(model: PretrainedViTWrapper, probe_images: list[Image.Image], device):
+    model.eval()
+
+    # 1. Extract features for all images
+    features = []
+    with torch.no_grad():
+        for img in probe_images:
+            emb = model.forward_features(img, make_2D=True)
+            emb_np = to_numpy(emb.squeeze(0))
+            # transpose to channel-last (h, w, c) as expected by do_linear_probe
+            emb_np = np.transpose(emb_np, (1, 2, 0))
+            features.append(emb_np)
+
+    # 2. Perform linear probing for each ramp type: 'lr', 'ud', 'diag', 'radial'
+    ramp_types = ["lr", "ud", "diag", "radial"]
+    results_r2 = {}
+
+    MASK_CUTOFF_FRAC = 1.0
+    STEP = 6
+    RANDOM_MASK = True
+
+    for ramp in ramp_types:
+        scores = []
+        for feats in features:
+            res = do_linear_probe(
+                feats,
+                ramp,
+                probe_by_channel=False,
+                mask_step=STEP,
+                mask_cutoff_frac=MASK_CUTOFF_FRAC,
+                random_mask=RANDOM_MASK,
+                regressor="ridge",
+            )
+            scores.append(res["stack_r_squared"])
+        results_r2[ramp] = float(np.mean(scores)) if scores else 0.0
+
+    return results_r2
