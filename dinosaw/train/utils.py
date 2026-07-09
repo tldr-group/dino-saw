@@ -79,6 +79,7 @@ def get_model(
     zero_pos_emb: bool,
     device: str | torch.device,
     existing_checkpoint: str | None = None,
+    backbone_checkpoint: str | None = None,
     vit_model_type: str = MODEL_LIST[1],
     stride: int = 14,
     conf_path: str | None = None,
@@ -89,7 +90,6 @@ def get_model(
 ) -> PretrainedViTWrapper:
 
     is_dinov3 = "dv3" in vit_model_type or "dinov3" in vit_model_type
-    print(vit_model_type)
 
     arch_name = None
     for k, v in ARCHS_TO_TIMM_IDS.items():
@@ -106,11 +106,15 @@ def get_model(
 
     backbone_type = "torch_hub" if is_dinov3 else "timm"
     pretrained = False if is_dinov3 else pretrained
+    # if existing supplied, use that, otherwise use backbone
+    checkpoint_to_load = existing_checkpoint if existing_checkpoint else backbone_checkpoint
+    print(f"get_model {vit_model_type} checkpoint: {checkpoint_to_load}")
+
     cfg = BackboneConfig(
         backbone_type=backbone_type,
         model_arch=arch_name,  # type: ignore
         pretrained=pretrained,
-        checkpoint_path=existing_checkpoint,
+        checkpoint_path=checkpoint_to_load,
         model_conf_path=conf_path,
         stride=(stride, stride),
     )
@@ -204,7 +208,8 @@ def get_ds(cfg: Config, device: str, cache: bool = False) -> tuple[Dataset, Data
             False,
             device,
             pretrained=True,
-            existing_checkpoint=cfg.backbone_checkpoint,
+            existing_checkpoint=None,
+            backbone_checkpoint=cfg.backbone_checkpoint,
             stride=cfg.stride,
             vit_model_type=cfg.vit_model_type,
             conf_path=cfg.conf_path,
