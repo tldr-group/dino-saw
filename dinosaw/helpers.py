@@ -141,10 +141,8 @@ def get_features(
     device: str = "cuda:0",
     S: int = 14,
 ) -> np.ndarray:
-    tr = closest_resize(pil_img.height, pil_img.width, model.stride)
-    img_tensor = convert_image(pil_img, tr, device_str=device, to_half=to_half)
     with torch.no_grad():
-        emb = model.forward_features(img_tensor, make_2D=True)
+        emb = model.forward_features(pil_img, make_2D=True)
     emb_np = to_numpy(emb.squeeze(0))
     if channel_blank:
         channels_to_blank = [47, 113, 117, 359]

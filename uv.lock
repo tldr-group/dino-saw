@@ -1849,8 +1849,8 @@ wheels = [
 
 [[package]]
 name = "pretrainedvitwrapper"
-version = "0.0.1"
-source = { git = "https://github.com/rmdocherty/PretrainedViTWrapper#077089a0366f38d5a5a69e79f91c5ffcad21f879" }
+version = "0.0.2"
+source = { git = "https://github.com/rmdocherty/PretrainedViTWrapper#ae848d9fdacbf09bcf089878e67142db714799f5" }
 dependencies = [
     { name = "pillow" },
     { name = "timm" },
