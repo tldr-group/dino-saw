@@ -32,9 +32,7 @@ dependencies = [
   ]
 
 [project.optional-dependencies]
-paper = [
-  "mictools>=1.1.4"
-]
+
 
 
 [project.urls]
