@@ -8,6 +8,8 @@ __all__ = [
     "WRAPPER_CHECKPOINTS",
     "ModelTypes",
     "MODEL_NAMES",
+    "get_model",
+    "get_models",
 ]
 
 from PVW import PretrainedViTWrapper
@@ -15,4 +17,4 @@ from .simple_debias import DebiasedViTWrapper, ChannelBlankedWrapper, TransformA
 from .denoising_vits import DenoisingViTWrapper
 
 # Import register_models to trigger all WrapperRegistry registrations
-from .register_models import MODEL_LIST, WRAPPER_CHECKPOINTS, ModelTypes, MODEL_NAMES
+from .register_models import MODEL_LIST, WRAPPER_CHECKPOINTS, ModelTypes, MODEL_NAMES, get_model, get_models
