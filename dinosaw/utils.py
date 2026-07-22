@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 
+from PVW import PretrainedViTWrapper
+
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from torchvision import transforms
@@ -20,10 +22,21 @@ norm_dict = {
 
 
 def to_numpy(tensor: torch.Tensor) -> np.ndarray:
-    arr = tensor.detach().cpu().numpy()
-    if len(arr.shape) == 4:
-        arr = arr[0]
+    arr = tensor.detach().cpu().squeeze().numpy()
     return arr
+
+
+def get_features(
+    model: PretrainedViTWrapper,
+    pil_img: Image.Image,
+    channel_last: bool = False,
+) -> np.ndarray:
+    with torch.no_grad():
+        emb = model.forward_features(pil_img, make_2D=True)
+    emb_np = to_numpy(emb)
+    if channel_last:
+        emb_np = np.transpose(emb_np, (1, 2, 0))
+    return emb_np
 
 
 # ========================= PCA STUFF =========================
