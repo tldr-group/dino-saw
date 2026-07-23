@@ -13,6 +13,7 @@ ModelTypes = Literal[
     "dinov3_s+",
     "nope_dinov2_s",
     "sinusoid_dinov2_s",
+    "sinusoid_dinov2_s_cb",
     "cb_dinov2_s",
     "tr_dinov2_s",
     "debiased_dinov2_s",
@@ -42,6 +43,7 @@ ModelTypes = Literal[
     "alibi_dinov2_s_no_norm_wrap_ms",
     "alibi_dinov3_s+_no_norm_wrap",
     "alibi_dinov3_s+_no_norm_wrap_ms",
+    "alibi_dinov3_s+_norm_wrap_ms",
 ]
 
 MODEL_LIST: tuple[ModelTypes, ...] = get_args(ModelTypes)
@@ -55,10 +57,12 @@ WRAPPER_CHECKPOINTS: dict[ModelTypes, str] = {
     "dvt_dinov2_s": "backbones/dvt.pth",
     "eupe_s": "backbones/EUPE-ViT-S.pt",
     # Wrapper checkpoints
-    "alibi_dinov2_s": "trained/alibi_dv2_vits14_reg.pth",
+    # "alibi_dinov2_s": "trained/alibi_dv2_vits14_reg.pth",
+    "alibi_dinov2_s": "trained/alibi_coco_dv2_vits14_reg_ms.pth",
     "alibi_dinov3_s+": "trained/alibi_dv3_ms.pth",
     "nope_dinov2_s": "trained/nope_coco_dv2_vits14_reg_ms.pth",
     "sinusoid_dinov2_s": "e2.pth",
+    "sinusoid_dinov2_s_cb": "ablations/sinusoid_dv2_cb.pth",
     # Ablations
     "alibi_dinov2_s_no_norm_no_wrap_no_cb": "ablations/alibi_dv2_no_norm_no_wrap_nocb.pth",
     "alibi_dinov2_s_no_norm_no_wrap_cb": "ablations/alibi_dv2_no_norm_no_wrap_cb.pth",
@@ -67,6 +71,7 @@ WRAPPER_CHECKPOINTS: dict[ModelTypes, str] = {
     "alibi_dinov2_s_no_norm_wrap_ms": "ablations/alibi_dv2_no_norm_wrap_more_cb_ms.pth",
     "alibi_dinov3_s+_no_norm_wrap": "ablations/alibi_dv3_plus_no_norm_wrap_cb.pth",
     "alibi_dinov3_s+_no_norm_wrap_ms": "ablations/alibi_dv3_plus_no_norm_wrap_cb_ms.pth",
+    "alibi_dinov3_s+_norm_wrap_ms": "ablations/alibi_dv3_plus_norm_wrap_cb_ms.pth",
 }
 
 # 2. Name lookup mapping
@@ -78,6 +83,7 @@ MODEL_NAMES: dict[ModelTypes, str] = {
     "alibi_dinov3_s+": "ALiBi-Dv3",
     "nope_dinov2_s": "NoPE",
     "sinusoid_dinov2_s": "Sinusoid",
+    "sinusoid_dinov2_s_cb": "Sinusoid(CB)",
     "debiased_dinov2_s": "DINOv2(DB)",
     "dvt_dinov2_s": "DVT",
     "cb_dinov2_s": "DINOv2(CB)",
@@ -103,6 +109,7 @@ MODEL_NAMES: dict[ModelTypes, str] = {
     "alibi_dinov2_s_no_norm_wrap_ms": "ALiBi-Dv2(-norm,+ms)",
     "alibi_dinov3_s+_no_norm_wrap": "ALiBi-Dv3(-norm)",
     "alibi_dinov3_s+_no_norm_wrap_ms": "ALiBi-Dv3(-norm,+ms)",
+    "alibi_dinov3_s+_norm_wrap_ms": "ALiBi-Dv3(+norm,+ms)",
 }
 
 
@@ -173,13 +180,24 @@ WrapperRegistry.register(
 
 # 4. NoPE
 WrapperRegistry.register(
-    "nope",
+    "nope_dinov2_s",
     WrapperConfig(backbone_cfg=BackboneConfig(backbone_type="timm", model_arch="dinov2_s", remove_pos_embed=True)),
 )
 
 # 5. Sinusoid
 WrapperRegistry.register(
     "sinusoid_dinov2_s",
+    WrapperConfig(
+        backbone_cfg=BackboneConfig(
+            backbone_type="timm",
+            model_arch="dinov2_s",
+            modifications=[replace_pe_with_sincos],
+        )
+    ),
+)
+
+WrapperRegistry.register(
+    "sinusoid_dinov2_s_cb",
     WrapperConfig(
         backbone_cfg=BackboneConfig(
             backbone_type="timm",
@@ -331,6 +349,15 @@ register_alibi_model(
     add_cls=True,
     normalize=False,
     wrap=True,
+)
+
+register_alibi_model(
+    "alibi_dinov3_s+_norm_wrap_ms",
+    "dinov3_s+",
+    backbone_type="torch_hub",
+    slope_type="constant",
+    n_reg_tokens=4,
+    add_cls=True,
 )
 
 # Skip for now / commented-out variants:
