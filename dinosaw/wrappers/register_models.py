@@ -19,6 +19,7 @@ ModelTypes = Literal[
     "debiased_dinov2_s",
     "dvt_dinov2_s",
     "alibi_dinov2_s",
+    "alibi_coco_dinov2_s",
     "alibi_dinov3_s+",
     # Others
     "dinov2_b",
@@ -57,8 +58,8 @@ WRAPPER_CHECKPOINTS: dict[ModelTypes, str] = {
     "dvt_dinov2_s": "backbones/dvt.pth",
     "eupe_s": "backbones/EUPE-ViT-S.pt",
     # Wrapper checkpoints
-    # "alibi_dinov2_s": "trained/alibi_dv2_vits14_reg.pth",
-    "alibi_dinov2_s": "trained/alibi_coco_dv2_vits14_reg_ms.pth",
+    "alibi_dinov2_s": "trained/alibi_dv2_vits14_reg.pth",
+    "alibi_coco_dinov2_s": "trained/alibi_coco_dv2_vits14_reg_ms.pth",
     "alibi_dinov3_s+": "trained/alibi_dv3_ms.pth",
     "nope_dinov2_s": "trained/nope_coco_dv2_vits14_reg_ms.pth",
     "sinusoid_dinov2_s": "e2.pth",
@@ -245,6 +246,14 @@ WrapperRegistry.register(
 # 8. ALiBi models
 register_alibi_model(
     "alibi_dinov2_s",
+    "dinov2_s",
+    slope_type="constant",
+    n_reg_tokens=4,
+    add_cls=True,
+)
+
+register_alibi_model(
+    "alibi_coco_dinov2_s",
     "dinov2_s",
     slope_type="constant",
     n_reg_tokens=4,
