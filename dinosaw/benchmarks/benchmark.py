@@ -1,42 +1,32 @@
-import torch
+from dataclasses import dataclass
+from datetime import datetime
+from functools import partial
+from os import environ, makedirs
+from shutil import rmtree
+from typing import Literal
+
 import numpy as np
+import torch
+from dinosaw.wrappers.DPT_head import DPTHead
+from PVW.factory import BackboneConfig, BackboneRegistry
+from PVW.types import ARCHS_TO_LOCAL_IDS, ARCHS_TO_TIMM_IDS
 from torch import nn, optim
-import geobench
-
-from torch.utils.tensorboard.writer import SummaryWriter
 from torch.utils.data import DataLoader
-from torchvision.datasets import VOCSegmentation
-import torchvision.transforms.v2 as v2
-
+from torch.utils.tensorboard.writer import SummaryWriter
 from torchmetrics.classification import MulticlassJaccardIndex
 
-from os import makedirs, environ
-from shutil import rmtree
-from datetime import datetime
-
-from dinosaw.datasets.vis_dataset import visualise_segmentation
-from dinosaw.datasets.benchmark_datasets import (
-    VOC_Dataset,
-    VOC07_Dataset,
-    ADE20KDataset,
-    GeoBenchDataset,
-    DatasetADE_NEW,
-    GF7,
-    Satellites,
-)
-import dinosaw.utils as utils
-from dinosaw.wrappers.DPT_head import DPTHead
 from dinosaw.alibi_logic import AlibiSlopeType
+from dinosaw.datasets.benchmark_datasets import (
+    GF7,
+    DatasetADE_NEW,
+    GeoBenchDataset,
+    Satellites,
+    VOC_Dataset,
+)
+from dinosaw.datasets.vis_dataset import visualise_segmentation
+from dinosaw.utils import closest_resize, seed_everything
 from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
-from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
-from PVW.factory import BackboneConfig, BackboneRegistry
-from functools import partial
 from dinosaw.wrappers.alibi import add_alibi
-from dinosaw.utils import seed_everything, closest_resize
-import time
-
-from typing import Literal
-from dataclasses import dataclass, field
 
 environ["QT_QPA_PLATFORM"] = "offscreen"
 

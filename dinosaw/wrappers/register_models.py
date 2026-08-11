@@ -1,9 +1,14 @@
 from typing import Literal, get_args
-from PVW import PretrainedViTWrapper, WrapperRegistry, WrapperConfig, BackboneConfig
 
-from dinosaw.wrappers.alibi import replace_pe_with_sincos, register_alibi_model
-from dinosaw.wrappers.simple_debias import DebiasedViTWrapper, ChannelBlankedWrapper, TransformAverageWrapper
+from PVW import BackboneConfig, PretrainedViTWrapper, WrapperConfig, WrapperRegistry
+
+from dinosaw.wrappers.alibi import register_alibi_model, replace_pe_with_sincos
 from dinosaw.wrappers.denoising_vits import DenoisingViTWrapper
+from dinosaw.wrappers.simple_debias import (
+    ChannelBlankedWrapper,
+    DebiasedViTWrapper,
+    TransformAverageWrapper,
+)
 
 # 1. Type definitions
 ModelTypes = Literal[

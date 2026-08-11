@@ -1,15 +1,15 @@
-import torch
-import pytest
 import math
+
+import torch
+from PVW import WrapperRegistry
+from timm import create_model
+
 from dinosaw.alibi_logic import (
+    DistanceMatrixWrapper,
     build_2d_sincos_pos_embed,
     get_distance_matrix,
-    DistanceMatrixWrapper,
 )
-from dinosaw.wrappers.alibi import convert_timm_model, add_alibi
-from timm import create_model
-from PVW import WrapperRegistry
-from dinosaw.wrappers import DebiasedViTWrapper, DenoisingViTWrapper, PretrainedViTWrapper
+from dinosaw.wrappers.alibi import add_alibi
 
 
 def test_build_2d_sincos_pos_embed():
@@ -56,6 +56,7 @@ def test_add_alibi_timm():
     )
     assert hasattr(model, "distance_matrix")
     from dinosaw.alibi_logic import AlibiAttention
+
     assert isinstance(model.blocks[0].attn, AlibiAttention)
 
 
@@ -63,31 +64,23 @@ def test_distance_matrix_detailed():
     h, w = 2, 5
 
     # 1. Manhattan, no norm, no wrap
-    dm = get_distance_matrix(
-        h, w, n_reg_tokens=0, metric="manhattan", normalize=False, wrap=False, add_cls=False
-    )
+    dm = get_distance_matrix(h, w, n_reg_tokens=0, metric="manhattan", normalize=False, wrap=False, add_cls=False)
     # [0, 0] to [1, 4] -> unwrapped Manhattan distance is |0-1| + |0-4| = 5.
     # Distances are negative in distance matrix.
     assert abs(dm[0, 9].item() - (-5.0)) < 1e-5
 
     # 2. Manhattan, no norm, wrap
-    dm_wrap = get_distance_matrix(
-        h, w, n_reg_tokens=0, metric="manhattan", normalize=False, wrap=True, add_cls=False
-    )
+    dm_wrap = get_distance_matrix(h, w, n_reg_tokens=0, metric="manhattan", normalize=False, wrap=True, add_cls=False)
     # Wrapped Manhattan: h-diff = min(1, 2-1) = 1, w-diff = min(4, 5-4) = 1. Distance = 2.
     assert abs(dm_wrap[0, 9].item() - (-2.0)) < 1e-5
 
     # 3. Manhattan, normalize, no wrap
-    dm_norm = get_distance_matrix(
-        h, w, n_reg_tokens=0, metric="manhattan", normalize=True, wrap=False, add_cls=False
-    )
+    dm_norm = get_distance_matrix(h, w, n_reg_tokens=0, metric="manhattan", normalize=True, wrap=False, add_cls=False)
     # Max distance is 5. Normalized distance is 5 / 5 = 1.
     assert abs(dm_norm[0, 9].item() - (-1.0)) < 1e-5
 
     # 4. Euclidean, no norm, no wrap
-    dm_eucl = get_distance_matrix(
-        h, w, n_reg_tokens=0, metric="euclidean", normalize=False, wrap=False, add_cls=False
-    )
+    dm_eucl = get_distance_matrix(h, w, n_reg_tokens=0, metric="euclidean", normalize=False, wrap=False, add_cls=False)
     # sqrt((0-1)^2 + (0-4)^2) = sqrt(17) ~= 4.1231
     expected = -math.sqrt(17.0)
     assert abs(dm_eucl[0, 9].item() - expected) < 1e-5
@@ -117,6 +110,3 @@ def test_alibi_forward_and_update():
     assert model.vit.distance_matrix.n_tokens_w == 8
     # cls (1) + reg (4) + spatial (64) = 69
     assert model.vit.distance_matrix.matrix.shape == (69, 69)
-
-
-

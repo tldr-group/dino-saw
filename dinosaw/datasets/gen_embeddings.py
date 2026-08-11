@@ -1,17 +1,20 @@
-import numpy as np
+from os import makedirs
+from time import time
+from typing import cast
 
+import numpy as np
 import torch
 from datasets import load_dataset  # type: ignore
-from os import makedirs
 from PIL import Image
+from PVW import WrapperRegistry
 
 from dinosaw.datasets.translate_featurise import translate_featurise
-from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST
-from PVW import WrapperRegistry
-from dinosaw.utils import closest_crop, convert_image, closest_resize, to_img, unnormalize
-
-from typing import cast
-from time import time
+from dinosaw.utils import (
+    closest_resize,
+    convert_image,
+    to_img,
+    unnormalize,
+)
 
 FOLDER_NAME = "data"
 NAME = "coco"

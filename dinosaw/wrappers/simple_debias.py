@@ -1,13 +1,11 @@
 import torch
-from torch import Tensor
 import torch.nn.functional as F
-from torchvision.transforms.functional import normalize
-
 from PIL import Image
-
 from PVW import PretrainedViTWrapper
+from PVW.types import Architectures, ImageTransform, ViTBackbone
 from PVW.wrapper import closest_resize
-from PVW.types import ViTBackbone, ImageTransform, Architectures
+from torch import Tensor
+from torchvision.transforms.functional import normalize
 
 
 class ChannelBlankedWrapper(PretrainedViTWrapper):

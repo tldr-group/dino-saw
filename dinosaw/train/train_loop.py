@@ -1,33 +1,31 @@
-import torch
 import json
+import logging
+from datetime import datetime
+from math import ceil
+from os import makedirs
+from shutil import rmtree
+
+import numpy as np
+import torch
+from PIL import Image
+from PVW import PretrainedViTWrapper
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard.writer import SummaryWriter
-import numpy as np
-from math import ceil
-from PIL import Image
-
-from os import makedirs
-from shutil import rmtree
-from datetime import datetime
-
-from PVW import PretrainedViTWrapper
 
 from dinosaw.datasets.vis_dataset import visualise
-from dinosaw.utils import seed_everything
 from dinosaw.train.utils import (
-    DatasetType,
     Config,
+    DatasetType,
+    evaluate_linear_probe,
     get_ds,
     get_linear_probe_images,
+    get_loss,
     get_model,
     get_optim,
-    get_loss,
-    evaluate_linear_probe,
     serialize_hparams,
 )
-
-import logging
+from dinosaw.utils import seed_everything
 
 logging.getLogger("PVW.utils").setLevel(logging.WARNING)
 

@@ -1,11 +1,9 @@
-import numpy as np
 from typing import Literal, TypedDict
 
-
+import numpy as np
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
-
 
 RampTypes = Literal["lr", "ud", "diag", "radial", "raster", "lr+ud", "random"]
 Regressor = Literal["linear", "ridge", "MLP"]

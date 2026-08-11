@@ -1,23 +1,22 @@
-import torch
-from PIL import Image
-import pandas as pd
-from torchvision import transforms as T
-from torchvision.transforms import v2
-from torchvision.transforms.functional import pil_to_tensor
-from torch.utils.data import Dataset
-import numpy as np
-from dinosaw.utils import load_image, resize_crop
-import dinosaw.utils as utils
-import geobench
 import glob
-import cv2
+import os
 
 # ADE20K
 import random
-import os
-
-
 from typing import Literal
+
+import cv2
+import geobench
+import numpy as np
+import torch
+from PIL import Image
+from torch.utils.data import Dataset
+from torchvision import transforms as T
+from torchvision.transforms import v2
+from torchvision.transforms.functional import pil_to_tensor
+
+from dinosaw import utils
+from dinosaw.utils import load_image, resize_crop
 
 Mode = Literal["train", "val"]
 Satellites = Literal[
@@ -84,7 +83,7 @@ class VOC_Dataset(Dataset):
                 raise Exception(f"Unkown mode {_}")
 
         img_paths, target_paths = [], []
-        for line in open(self.base_path + txt_file, "r").readlines():
+        for line in open(self.base_path + txt_file, "r"):
             img_paths.append(self.base_path + "/JPEGImages/" + line.strip() + ".jpg")
             target_paths.append(
                 self.base_path + "/SegmentationClass/" + line.strip() + ".png"
@@ -145,7 +144,7 @@ class ADE20KDataset(Dataset):
 
         self.img_paths, self.target_paths = get_paths(base_path=base_path, mode=mode)
         if len(self.img_paths) == 0:
-            raise Exception(f"Dataset has 0 entrys")
+            raise Exception("Dataset has 0 entrys")
 
     def __len__(self):
         if len(self.img_paths) != len(self.target_paths):
@@ -248,7 +247,7 @@ class DatasetADE_NEW(Dataset):
             self.list_sample = self.list_sample[0:max_sample]
         num_sample = len(self.list_sample)
         assert num_sample > 0
-        print("# samples: {}".format(num_sample))
+        print(f"# samples: {num_sample}")
 
     def _scale_and_crop(self, img, seg, cropSize, is_train):
         h, w = img.shape[-2], img.shape[-1]
@@ -292,8 +291,8 @@ class DatasetADE_NEW(Dataset):
         path_img = os.path.join(self.root_img, img_basename)
         path_seg = os.path.join(self.root_seg, img_basename.replace(".jpg", ".png"))
 
-        assert os.path.exists(path_img), "[{}] does not exist".format(path_img)
-        assert os.path.exists(path_seg), "[{}] does not exist".format(path_seg)
+        assert os.path.exists(path_img), f"[{path_img}] does not exist"
+        assert os.path.exists(path_seg), f"[{path_seg}] does not exist"
 
         # load image and label
 

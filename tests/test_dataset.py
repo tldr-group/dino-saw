@@ -1,10 +1,11 @@
 import os
 import tempfile
-import torch
+
 import pytest
 from PIL import Image
-from dinosaw.datasets.joint_embed_dataset import JointEmbeddingDataset
 from PVW import WrapperRegistry
+
+from dinosaw.datasets.joint_embed_dataset import JointEmbeddingDataset
 
 
 @pytest.fixture

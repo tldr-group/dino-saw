@@ -1,15 +1,16 @@
-import torch
-import torch.nn as nn
 from functools import partial
 
+import torch
+from PVW import BackboneConfig, WrapperConfig, WrapperRegistry
+from PVW.types import Dv3ViT, satisfies_protocol
+from torch import nn
+
 from dinosaw.alibi_logic import (
-    DistanceMatrixWrapper,
     AlibiAttention,
-    convert_dv3_model,
+    DistanceMatrixWrapper,
     build_2d_sincos_pos_embed,
+    convert_dv3_model,
 )
-from PVW import WrapperRegistry, WrapperConfig, BackboneConfig
-from PVW.types import satisfies_protocol, Dv3ViT
 
 
 def convert_timm_model(
