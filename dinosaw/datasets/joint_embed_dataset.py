@@ -1,17 +1,15 @@
-import torch
-from torchvision.transforms import Compose  # type: ignore
-from torch.utils.data import Dataset
-
-from random import randint, choice
-
+from collections.abc import Callable
+from functools import partial
 from glob import glob
+from random import choice
+from typing import Literal, TypeAlias
+
+import torch
+from torch.utils.data import Dataset
+from torchvision.transforms import Compose  # type: ignore
 
 from dinosaw.utils import closest_resize_crop, load_image
 from dinosaw.wrappers import PretrainedViTWrapper
-
-
-from functools import partial
-from typing import Literal, Callable, TypeAlias
 
 Tr: TypeAlias = Callable[[torch.Tensor], torch.Tensor]
 
@@ -68,7 +66,7 @@ class OTFEmbeddingDataset(Dataset):
     def get_img_paths(self, base_path: str, fname_file_path: str | None) -> list[str]:
         if fname_file_path is not None:
             with open(fname_file_path, "r") as f:
-                img_fnames = [line.strip().split(";")[0] for line in f.readlines()]
+                img_fnames = [line.strip().split(";")[0] for line in f]
             img_paths = [f"{base_path}/{fname}" for fname in img_fnames]
         else:
             img_paths = sorted(glob(f"{base_path}/*.jpg"))

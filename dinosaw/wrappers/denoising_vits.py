@@ -3,11 +3,10 @@
 from functools import partial
 
 import torch
-import torch.nn as nn
+from PVW import PretrainedViTWrapper
 from timm.layers import resample_abs_pos_embed
 from timm.models.vision_transformer import Block, Mlp
-
-from PVW import PretrainedViTWrapper, WrapperRegistry, WrapperConfig, BackboneConfig
+from torch import nn
 
 
 class DenoisingViT(nn.Module):

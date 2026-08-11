@@ -1,13 +1,13 @@
+from io import BytesIO
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torchvision.transforms.functional as TF  # type: ignore
-from torch.utils.data import DataLoader
-import numpy as np
-
-from io import BytesIO
 from PIL import Image
-import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
 
-from dinosaw.utils import to_numpy, do_2D_pca
+from dinosaw.utils import do_2D_pca, to_numpy
 
 
 def pascal_colormap():

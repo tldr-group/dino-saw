@@ -1,22 +1,17 @@
-import torch
-import numpy as np
-
-from PVW import PretrainedViTWrapper
-
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from torchvision import transforms
-
-from PIL import Image
-from PIL.ImageColor import getcolor
-from skimage.color import label2rgb
-import matplotlib.pyplot as plt
-from matplotlib import font_manager
+from random import seed as rseed
 from typing import Literal
 
-
-from random import seed as rseed
-
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from matplotlib import font_manager
+from PIL import Image
+from PIL.ImageColor import getcolor
+from PVW import PretrainedViTWrapper
+from skimage.color import label2rgb
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from torchvision import transforms
 
 NormType = Literal["minmax", "std", None]
 norm_dict = {

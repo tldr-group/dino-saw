@@ -1,15 +1,17 @@
 import os
-import torch
+
 import pytest
-from dinosaw.helpers import get_model
-from PVW import WrapperRegistry, BackboneRegistry, BackboneConfig
+import torch
+from PVW import BackboneConfig, BackboneRegistry, WrapperRegistry
+
 from dinosaw.wrappers import (
+    ChannelBlankedWrapper,
     DebiasedViTWrapper,
     DenoisingViTWrapper,
     PretrainedViTWrapper,
-    ChannelBlankedWrapper,
     TransformAverageWrapper,
 )
+from dinosaw.wrappers.register_models import get_model
 
 
 def get_chk_dir(filename):
@@ -161,4 +163,3 @@ def test_simple_debias_wrappers():
     # Test make_2D = False
     out_deb_1d = deb_wrapper.forward_features(x, make_2D=False, svd_components=4)
     assert out_deb_1d.shape == (1, 384, 256)
-

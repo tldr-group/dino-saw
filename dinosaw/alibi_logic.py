@@ -1,13 +1,11 @@
+from typing import Literal
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-
-from timm.layers.mlp import Mlp
-from timm.models.vision_transformer import Block, Attention
 from dinov3.layers.attention import SelfAttention as DV3SelfAttention
-
-
-from typing import Type, Literal, Optional
+from timm.layers.mlp import Mlp
+from timm.models.vision_transformer import Attention, Block
+from torch import nn
 
 
 def build_2d_sincos_pos_embed(
@@ -332,7 +330,7 @@ class AlibiAttention(Attention):
         proj_bias: bool = True,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
-        norm_layer: Type[nn.Module] = nn.LayerNorm,
+        norm_layer: type[nn.Module] = nn.LayerNorm,
         slope_type: AlibiSlopeType = "constant",
         jitter_mag: float = 0.0,
     ) -> None:
@@ -417,11 +415,11 @@ class AlibiBlock(Block):
         proj_bias: bool = True,
         proj_drop: float = 0.0,
         attn_drop: float = 0.0,
-        init_values: Optional[float] = None,
+        init_values: float | None = None,
         drop_path: float = 0.0,
-        act_layer: Type[nn.Module] = nn.GELU,
-        norm_layer: Type[nn.Module] = nn.LayerNorm,
-        mlp_layer: Type[nn.Module] = Mlp,
+        act_layer: type[nn.Module] = nn.GELU,
+        norm_layer: type[nn.Module] = nn.LayerNorm,
+        mlp_layer: type[nn.Module] = Mlp,
     ) -> None:
         super().__init__(
             dim=dim,
@@ -455,7 +453,8 @@ class AlibiBlock(Block):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from dinosaw.wrappers import PretrainedViTWrapper, MODEL_LIST
+
+    from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
 
     h, w = 8, 30
 

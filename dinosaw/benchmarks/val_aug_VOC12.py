@@ -1,11 +1,12 @@
-import torch
-import torch.nn as nn
-from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST, AlibiVitWrapper
-from dinosaw.datasets.benchmark_datasets import VOC_Dataset
-from typing import Literal
-from random import choice
 from functools import partial
-import matplotlib.pyplot as plt
+from random import choice
+from typing import Literal
+
+import torch
+from dinosaw.models.vit_wrapper import PretrainedViTWrapper
+from torch import nn
+
+from dinosaw.datasets.benchmark_datasets import VOC_Dataset
 from dinosaw.utils import seed_everything
 
 Transforms = Literal["roll", "rot90", "flip-ud"]

@@ -1,26 +1,27 @@
-import torch
-from torch import nn, optim
-from torch.utils.data import Dataset
-import numpy as np
-from PIL import Image
-
-from os import listdir
-
-from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
-from dinosaw.datasets.joint_embed_dataset import JointEmbeddingDataset, OTFEmbeddingDataset
-from dinosaw.alibi_logic import AlibiSlopeType
-from dinosaw.linear_probe import do_linear_probe
-from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
-from dinosaw.wrappers.alibi import add_alibi, replace_pe_with_sincos
-from PVW.modifications import replace_pos_embed
-from PVW.factory import BackboneConfig, BackboneRegistry
-from PVW.types import ARCHS_TO_TIMM_IDS, ARCHS_TO_LOCAL_IDS
-from dinosaw.utils import closest_resize, closest_resize_crop, to_numpy
-
-from functools import partial
 from dataclasses import dataclass, field
+from functools import partial
+from os import listdir
 from typing import Literal
 
+import numpy as np
+import torch
+from PIL import Image
+from PVW.factory import BackboneConfig, BackboneRegistry
+from PVW.modifications import replace_pos_embed
+from PVW.types import ARCHS_TO_LOCAL_IDS, ARCHS_TO_TIMM_IDS
+from torch import nn, optim
+from torch.utils.data import Dataset
+
+from dinosaw.alibi_logic import AlibiSlopeType
+from dinosaw.datasets.joint_embed_dataset import (
+    JointEmbeddingDataset,
+    OTFEmbeddingDataset,
+)
+from dinosaw.datasets.train_student_dataset import HomogenizedEmbeddingDataset
+from dinosaw.linear_probe import do_linear_probe
+from dinosaw.utils import closest_resize, closest_resize_crop, to_numpy
+from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
+from dinosaw.wrappers.alibi import add_alibi, replace_pe_with_sincos
 
 Optims = Literal["Adam", "AdamW", "SGD"]
 Losses = Literal["MSE", "MAE", "cosine", "CE"]
@@ -51,7 +52,7 @@ class Config:
     zero_pos_emb: bool = False
     jitter_mag: float = 0.0
 
-    channels_to_blank: list[int] = field(default_factory=lambda: [])
+    channels_to_blank: list[int] = field(default_factory=list)
     channel_dup: bool = False
     do_random_roll: bool = False
 
