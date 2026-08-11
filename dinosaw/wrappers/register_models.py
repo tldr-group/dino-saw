@@ -151,6 +151,19 @@ def get_model(
     return wrapper
 
 
+def get_model_(
+    model_type: ModelTypes,
+    device: str,
+    eval: bool = True,
+    checkpoint_dir: str = "models/checkpoints",
+    conf_dir: str = "models",
+    **build_kwargs,
+) -> PretrainedViTWrapper:
+    rel_path = WRAPPER_CHECKPOINTS.get(model_type, None)
+    checkpoint_path = f"{checkpoint_dir}/{rel_path}" if rel_path else None
+    return get_model(model_type, device, eval=eval, checkpoint_path=checkpoint_path, conf_path=conf_dir, **build_kwargs)
+
+
 def get_models(
     model_types: tuple[ModelTypes, ...],
     device: str,

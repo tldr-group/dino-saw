@@ -2,7 +2,7 @@ import os
 
 import pytest
 import torch
-from PVW import BackboneConfig, BackboneRegistry, WrapperRegistry
+from PVW import BackboneConfig, BackboneRegistry
 
 from dinosaw.wrappers import (
     ChannelBlankedWrapper,
@@ -11,7 +11,7 @@ from dinosaw.wrappers import (
     PretrainedViTWrapper,
     TransformAverageWrapper,
 )
-from dinosaw.wrappers.register_models import get_model
+from dinosaw.wrappers.register_models import get_model_
 
 
 def get_chk_dir(filename):
@@ -20,22 +20,23 @@ def get_chk_dir(filename):
         f"models/checkpoints/{filename}",
         f"models/checkpoints/backbones/{filename}",
         f"models/checkpoints/trained/{filename}",
-        f"trained_models/{filename}",
     ]:
-        if os.path.exists(path):
+        if os.path.isfile(path):
+            print("foo")
             return os.path.abspath(os.path.dirname(path))
     return None
 
 
 dvt_dir = get_chk_dir("dvt.pth")
-alibi_dv2_dir = get_chk_dir("alibi_dv2_vits14_reg.pth")
-nope_dir = get_chk_dir("nope_dv2_vits14_reg.pth")
-alibi_dv3_dir = get_chk_dir("alibi_dv3_ms.pth")
+print(dvt_dir)
+alibi_dv2_dir = get_chk_dir("alibi_coco_dv2_vits14_reg4.pth")
+nope_dir = get_chk_dir("nope_coco_dv2_vits14_reg4.pth")
+alibi_dv3_dir = get_chk_dir("alibi_coco_dv3_vits16_plus_reg4.pth")
 
 
 @pytest.mark.skipif(dvt_dir is None, reason="dvt.pth checkpoint missing")
 def test_dvt_wrapper_loading():
-    model = get_model("dvt", dvt_dir, device="cpu")
+    model = get_model_("dvt_dinov2_s", "cpu")
     assert isinstance(model, DenoisingViTWrapper)
 
     # Do inference on different sized tensors
@@ -51,11 +52,11 @@ def test_dvt_wrapper_loading():
 @pytest.mark.skipif(alibi_dv2_dir is None, reason="alibi_dv2_vits14_reg.pth checkpoint missing")
 def test_alibi_dv2_wrapper_loading():
     # Test old name alibi_dv2
-    model_old = get_model("alibi_dv2", alibi_dv2_dir, device="cpu")
+    model_old = get_model_("alibi_dinov2_s", device="cpu")
     assert isinstance(model_old, PretrainedViTWrapper)
 
     # Test new name alibi_dinov2_s
-    model_new = get_model("alibi_dinov2_s", alibi_dv2_dir, device="cpu")
+    model_new = get_model_("alibi_coco_dinov2_s", device="cpu")
     assert isinstance(model_new, PretrainedViTWrapper)
 
     # Do inference on different sized tensors
@@ -70,8 +71,7 @@ def test_alibi_dv2_wrapper_loading():
 
 @pytest.mark.skipif(nope_dir is None, reason="nope_dv2_vits14_reg.pth checkpoint missing")
 def test_nope_wrapper_loading():
-    model = WrapperRegistry.build("nope", device="cpu")
-    model = model.eval()
+    model = get_model_("nope_dinov2_s", device="cpu")
 
     # Do inference on different sized tensors
     x1 = torch.randn(1, 3, 224, 224)
@@ -86,11 +86,11 @@ def test_nope_wrapper_loading():
 @pytest.mark.skipif(alibi_dv3_dir is None, reason="alibi_dv3_ms.pth checkpoint missing")
 def test_alibi_dv3_wrapper_loading():
     # Test old name alibi_dv3
-    # model_old = get_model("alibi_dv3", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
+    # model_old = get_model_("alibi_dv3", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
     # assert isinstance(model_old, PretrainedViTWrapper)
 
     # Test new name alibi_dinov3_s
-    model_new = get_model("alibi_dinov3_s+", alibi_dv3_dir, device="cpu", conf_path="models/dinov3")
+    model_new = get_model_("alibi_dinov3_s+", device="cpu", conf_dir="models/dinov3")
     assert isinstance(model_new, PretrainedViTWrapper)
 
     # Do inference on different sized tensors
