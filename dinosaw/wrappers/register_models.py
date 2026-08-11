@@ -61,10 +61,10 @@ WRAPPER_CHECKPOINTS: dict[ModelTypes, str] = {
     "dvt_dinov2_s": "backbones/dvt.pth",
     "eupe_s": "backbones/EUPE-ViT-S.pt",
     # Wrapper checkpoints
-    "alibi_dinov2_s": "trained/alibi_dv2_vits14_reg.pth",
-    "alibi_coco_dinov2_s": "trained/alibi_coco_dv2_vits14_reg_ms.pth",
-    "alibi_dinov3_s+": "trained/alibi_dv3_ms.pth",
-    "nope_dinov2_s": "trained/nope_coco_dv2_vits14_reg_ms.pth",
+    "alibi_dinov2_s": "trained/alibi_dv2_vits14_reg4.pth",
+    "alibi_coco_dinov2_s": "trained/alibi_coco_dv2_vits14_reg4.pth",
+    "alibi_dinov3_s+": "trained/alibi_coco_dv3_vits16_plus_reg4.pth",
+    "nope_dinov2_s": "trained/nope_coco_dv2_vits14_reg4.pth",
     "sinusoid_dinov2_s": "e2.pth",
     "sinusoid_dinov2_s_cb": "ablations/sinusoid_dv2_cb.pth",
     # Ablations
@@ -381,61 +381,3 @@ register_alibi_model(
     n_reg_tokens=4,
     add_cls=True,
 )
-
-# Skip for now / commented-out variants:
-# register_alibi_model(
-#     "alibi_dinov2_s_h",
-#     "dinov2_s",
-#     slope_type="constant",
-#     n_reg_tokens=4,
-#     add_cls=True,
-# )
-
-# register_alibi_model(
-#     "alibi_dinov2_s_cb",
-#     "dinov2_s",
-#     slope_type="constant",
-#     n_reg_tokens=4,
-#     add_cls=True,
-# )
-
-# register_alibi_model(
-#     "alibi_dinov2_s_cb_s_l",
-#     "dinov2_s",
-#     slope_type="learned",
-#     n_reg_tokens=4,
-#     add_cls=True,
-# )
-
-# register_alibi_model(
-#     "alibi_dinov2_s_cb_nr_l",
-#     "dinov2_s",
-#     slope_type="learned",
-#     n_reg_tokens=0,
-#     add_cls=False,
-# )
-
-# register_alibi_model(
-#     "alibi_dinov2_s_cb_l_j",
-#     "dinov2_s",
-#     slope_type="learned",
-#     n_reg_tokens=4,
-#     add_cls=True,
-#     jitter_mag=0.025,
-# )
-
-# register_alibi_model(
-#     "alibi_dinov2_s_coco",
-#     "dinov2_s",
-#     slope_type="constant",
-#     n_reg_tokens=4,
-#     add_cls=True,
-# )
-
-# register_alibi_model(
-#     "alibi_dinov2_s_coco_e1",
-#     "dinov2_s",
-#     slope_type="constant",
-#     n_reg_tokens=4,
-#     add_cls=True,
-# )

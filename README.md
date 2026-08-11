@@ -51,13 +51,17 @@ Note: some of the figures rely on ablation checkpoints that aren't in the HF rep
 
 ## Checkpoints
 
-We've trained three models with this setup, all ViT-S DINO models
+We've trained a series models with this setup, all ViT-S DINO models. `_coco` refers to models trained using embeddings from the COCO-stuff (~120k images) dataset, otherwise ImageNetReduced (25k images) was used.
 
-- [alibi_dv2_vits14_reg.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_dv2_vits14_reg.pth)
-- [alibi_dv3_vits14_reg.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_dv3_vits16_reg.pth)
-- [nope_dv2_vits14_reg.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_dv3_vits14_reg.pth)
+- [alibi_dv2_vits14_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_dv2_vits14_reg4.pth.pth)
+- [alibi_coco_dv2_vits14_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_coco_dv2_vits14_reg4.pth)
+- [nope_coco_dv2_vits14_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/nope_coco_dv2_vits14_reg4.pth)
+- [alibi_coco_dv3_vits16_plus_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_coco_dv3_vits16_plus_reg4.pth)
+
 
 ## Usage
+
+Check out `apply.py` or `notebooks/examples/compare_models.ipynb` for usage examples.
 
 ## Project structure
 
