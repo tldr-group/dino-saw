@@ -29,6 +29,7 @@ Download the source and install the package locally:
 ```bash
 git clone https://github.com/tldr-group/dino-saw
 pip install '.[paper]'
+git clone https://github.com/facebookresearch/dinov3 models/dinov3 # required to use alibi-dv3
 ```
 Instead of `pip`, I recommend using `uv` for this: 
 ```
@@ -46,6 +47,7 @@ To get the data needed to run all the figures, you need to download and unzip th
 ```bash
 curl -L -o data.zip "https://zenodo.org/records/21627644/files/data.zip?download=1"
 unzip -q data.zip -d notebooks/paper_figures_pdf/data
+rm data.zip
 ```
 Note: some of the figures rely on ablation checkpoints that aren't in the HF repo (to keep download size small). If you're interested, contact me and I'll send you the checkpoints.
 

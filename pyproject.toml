@@ -28,7 +28,8 @@ dependencies = [
   "scikit-learn>=1.6.1",
   "pillow>=11.2.0",
   "scikit-image>=0.25.2",
-  "tensorboard"
+  "tensorboard",
+  "pytest"
   ]
 
 [project.optional-dependencies]
@@ -36,6 +37,7 @@ paper = [
   "interactive-seg-backend[cpu,dev]@git+https://github.com/tldr-group/interactive-seg-backend",
   "tifffile>=2025.3.30",
   "matplotlib>=3.10.0",
+  "ipykernel"
 ]
 
 
