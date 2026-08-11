@@ -1,12 +1,13 @@
-import torch
-import torch.nn as nn
 from typing import Literal
-from dinosaw.models.vit_wrapper import PretrainedViTWrapper, AlibiVitWrapper, MODEL_LIST
-from dinosaw.datasets.benchmark_datasets import VOC_Dataset, DatasetADE_NEW
-from dinosaw.utils import normalize
-from dinosaw.datasets.vis_dataset import colorize
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from torch import nn
+
+from dinosaw.datasets.benchmark_datasets import DatasetADE_NEW, VOC_Dataset
+from dinosaw.datasets.vis_dataset import colorize
+from dinosaw.utils import normalize
 
 Model = Literal["Dv2", "NoPE", "ALiBi"]
 Benchmark = Literal["VOC07", "VOC12", "ADE20K"]
@@ -128,23 +129,13 @@ def get_val_ds(benchmark: Benchmark):
 
 def get_lin_model(model_type: Model, benchmark: Benchmark, device: torch.device | str):
     if model_type == "Dv2":
-        model = PretrainedViTWrapper(
-            model_identifier=MODEL_LIST[1],
-            stride=14,
-            add_flash_attn=False,
-            device=device,
-        )
-    if model_type == "NoPE":
-        model = PretrainedViTWrapper(
-            model_identifier=MODEL_LIST[1],
-            stride=14,
-            add_flash_attn=False,
-            device=device,
-        )
-    if model_type == "ALiBi":
-        model = AlibiVitWrapper(
-            model_identifier=MODEL_LIST[1], add_flash_attn=False, device=device
-        )
+        model = WrapperRegistry.build("dinov2_s", device=device)
+    elif model_type == "NoPE":
+        model = WrapperRegistry.build("nope", device=device)
+    elif model_type == "ALiBi":
+        model = WrapperRegistry.build("alibi_dv2", device=device)
+    else:
+        raise ValueError(f"Invalid model_type {model_type}")
 
     lin_model = BenchmarkModel(
         model=model, device=device, size=518, benchmark=benchmark

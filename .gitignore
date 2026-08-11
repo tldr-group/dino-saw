@@ -223,10 +223,14 @@ data/
 experiments/*
 notebooks/exploration/*
 notebooks/paper_figures/saved
+notebooks/paper_figures_pdf/saved
 notebooks/thesis_figures/out
 
 *.ttf
 AG_plots/
 minepy/
 
+models/*
 
+
+*.pkl

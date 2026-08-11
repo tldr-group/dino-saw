@@ -1,14 +1,12 @@
-import torch
-from torchvision.transforms import Compose  # type: ignore
-from torch.utils.data import Dataset
-
-from random import randint
-
 from glob import glob
-
-from dinosaw.utils import load_image, closest_crop
-
+from random import randint
 from typing import Literal
+
+import torch
+from torch.utils.data import Dataset
+from torchvision.transforms import Compose  # type: ignore
+
+from dinosaw.utils import closest_crop, load_image
 
 tr = closest_crop(224, 224, 14)
 

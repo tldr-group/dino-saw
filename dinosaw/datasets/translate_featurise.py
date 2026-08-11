@@ -1,10 +1,10 @@
-import torch
+from functools import cache
 from math import ceil
 
-from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST
-from dinosaw.utils import load_image, closest_crop, do_2D_pca, to_numpy
+import torch
 
-from functools import lru_cache
+from dinosaw.utils import closest_crop, do_2D_pca, load_image, to_numpy
+from dinosaw.wrappers import MODEL_LIST, PretrainedViTWrapper
 
 
 def get_shifts(h: int, w: int, step: int, mult: int) -> list[tuple[int, int]]:
@@ -57,7 +57,7 @@ def invert_shifts_and_average(
     return torch.sum(stacked, dim=0, keepdim=True, dtype=torch.float64) / b
 
 
-@lru_cache(maxsize=None)
+@cache
 @torch.no_grad()
 def translate_featurise(
     img: torch.Tensor,
@@ -78,8 +78,9 @@ def translate_featurise(
 
 
 if __name__ == "__main__":
-    from dinosaw.utils import linear_probe, get_ramp, gen_sample_mask
     import matplotlib.pyplot as plt
+
+    from dinosaw.utils import gen_sample_mask, get_ramp, linear_probe
 
     torch.cuda.empty_cache()
     DEVICE = "cuda:1"

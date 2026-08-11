@@ -1,2 +1,2 @@
-__all__ = ["PretrainedViTWrapper"]
-from .models.vit_wrapper import PretrainedViTWrapper
+__all__ = ["PretrainedViTWrapper", "get_model", "get_models"]
+from .wrappers import PretrainedViTWrapper, get_model, get_models

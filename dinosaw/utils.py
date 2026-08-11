@@ -1,16 +1,17 @@
-import torch
-import numpy as np
-
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from torchvision import transforms
-
-from PIL import Image
-import matplotlib.pyplot as plt
+from random import seed as rseed
 from typing import Literal
 
-from random import seed as rseed
-
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from matplotlib import font_manager
+from PIL import Image
+from PIL.ImageColor import getcolor
+from PVW import PretrainedViTWrapper
+from skimage.color import label2rgb
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from torchvision import transforms
 
 NormType = Literal["minmax", "std", None]
 norm_dict = {
@@ -20,10 +21,21 @@ norm_dict = {
 
 
 def to_numpy(tensor: torch.Tensor) -> np.ndarray:
-    arr = tensor.detach().cpu().numpy()
-    if len(arr.shape) == 4:
-        arr = arr[0]
+    arr = tensor.detach().cpu().squeeze().numpy()
     return arr
+
+
+def get_features(
+    model: PretrainedViTWrapper,
+    pil_img: Image.Image,
+    channel_last: bool = False,
+) -> np.ndarray:
+    with torch.no_grad():
+        emb = model.forward_features(pil_img, make_2D=True)
+    emb_np = to_numpy(emb)
+    if channel_last:
+        emb_np = np.transpose(emb_np, (1, 2, 0))
+    return emb_np
 
 
 # ========================= PCA STUFF =========================
@@ -229,3 +241,39 @@ def seed_everything(seed: int):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+# %% Plotting
+
+
+def add_custom_font(font_folder: str, font_name: str = "Grotesk") -> None:
+    try:
+        font_paths = (f"{font_folder}/{font_name}.ttf", f"{font_folder}/{font_name}-Bold.ttf")
+        for font_path in font_paths:
+            font_manager.fontManager.addfont(font_path)
+        prop = font_manager.FontProperties(fname=font_paths[0])
+
+        plt.rcParams["font.family"] = "sans-serif"
+        plt.rcParams["font.sans-serif"] = prop.get_name()
+        plt.rcParams["font.serif"] = prop.get_name()
+    except Exception as e:
+        print(f"Can't load custom font: {e} ")
+
+
+COLOURS = ["#648FFF", "#785EF0", "#DC267F", "#FE6100", "#FFB000"]
+COLORS = [[v / 255.0 for v in getcolor(c, "RGB")] for c in COLOURS]
+
+
+def hide_axis(ax):
+    ax.set_xticks([])
+    ax.set_yticks([])
+    # ax.set_frame_on(False)
+
+
+def apply_labels_as_overlay(labels: np.ndarray, img: Image.Image, colors: list, alpha: float = 1.0) -> Image.Image:
+    labels_unsqueezed = np.expand_dims(labels, -1)
+
+    overlay = label2rgb(labels, colors=colors[1:], kind="overlay", bg_label=0, image_alpha=1, alpha=alpha)
+    out = np.where(labels_unsqueezed, overlay * 255, np.array(img)).astype(np.uint8)
+    img_with_labels = Image.fromarray(out)
+    return img_with_labels

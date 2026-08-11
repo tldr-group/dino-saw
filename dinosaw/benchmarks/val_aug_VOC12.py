@@ -1,11 +1,12 @@
-import torch
-import torch.nn as nn
-from dinosaw.models.vit_wrapper import PretrainedViTWrapper, MODEL_LIST, AlibiVitWrapper
-from dinosaw.datasets.benchmark_datasets import VOC_Dataset
-from typing import Literal
-from random import choice
 from functools import partial
-import matplotlib.pyplot as plt
+from random import choice
+from typing import Literal
+
+import torch
+from dinosaw.models.vit_wrapper import PretrainedViTWrapper
+from torch import nn
+
+from dinosaw.datasets.benchmark_datasets import VOC_Dataset
 from dinosaw.utils import seed_everything
 
 Transforms = Literal["roll", "rot90", "flip-ud"]
@@ -180,23 +181,13 @@ df = pd.DataFrame(
 )
 for TR in ["none", "flip-ud", "rot90", "roll"]:
     if MODEL == "Dv2":
-        model = PretrainedViTWrapper(
-            model_identifier=MODEL_LIST[1],
-            stride=14,
-            add_flash_attn=False,
-            device=DEVICE,
-        )
+        model = WrapperRegistry.build("dinov2_s", device=DEVICE)
         model_aug = AugmentModel(model=model, device=DEVICE, size=518, tr_type=TR)
         model_aug.load_state_dict(
             torch.load("../../trained_linear_models/VOC12_Dv2.pth", map_location=DEVICE)
         )
     if MODEL == "NoPE":
-        model = PretrainedViTWrapper(
-            model_identifier=MODEL_LIST[1],
-            stride=14,
-            add_flash_attn=False,
-            device=DEVICE,
-        )
+        model = WrapperRegistry.build("nope", device=DEVICE)
         model_aug = AugmentModel(model=model, device=DEVICE, size=518, tr_type=TR)
         model_aug.load_state_dict(
             torch.load(
@@ -204,9 +195,7 @@ for TR in ["none", "flip-ud", "rot90", "roll"]:
             )
         )
     if MODEL == "coco":
-        model = AlibiVitWrapper(
-            model_identifier=MODEL_LIST[1], add_flash_attn=False, device=DEVICE
-        )
+        model = WrapperRegistry.build("alibi_dv2", device=DEVICE)
 
         model_aug = AugmentModel(model=model, device=DEVICE, size=518, tr_type=TR)
         model_aug.load_state_dict(
