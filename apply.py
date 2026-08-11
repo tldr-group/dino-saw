@@ -5,23 +5,23 @@ from dinosaw.utils import load_image, do_2D_pca, to_numpy, closest_resize
 from PIL import Image
 import matplotlib.pyplot as plt
 
-# problem: all your checkpoints are model.foo,
+
 model = WrapperRegistry.build(
-    "alibi_dinov3_s",
+    "alibi_coco_dinov2_s",
     device="cuda:0",
-    checkpoint_path="models/checkpoints/trained/alibi_dv3_ms.pth",
-    model_conf_path="models/dinov3",
+    checkpoint_path="models/checkpoints/trained/alibi_coco_dv2_vits14_reg4.pth",
+    model_conf_path="models/dinov3",  # this is only used for dv3 models
 )
 model.to("cuda:0")
 model.eval()
 
-img_fname = "000394.jpg"
-_img = Image.open(f"images/micro/{img_fname}").convert("RGB")
+img_fname = "default_image.jpg"
+_img = Image.open(f"tests/{img_fname}").convert("RGB")
 
 
 SF = 1
 tr = closest_resize(SF * _img.height, SF * _img.width, 14)
-img, _ = load_image(f"images/micro/{img_fname}", tr, to_half=False, device_str="cuda:0")
+img, _ = load_image(f"tests/{img_fname}", tr, to_half=False, device_str="cuda:0")
 with torch.no_grad():
     emb = model.forward_features(img, make_2D=True)
 
