@@ -37,6 +37,7 @@ ModelTypes = Literal[
     "vit_t_in",
     "classical",
     # Commented out variants
+    "alibi_dinov2_s_learned",
     "alibi_dinov2_s_no_norm_no_wrap_no_cb",
     "alibi_dinov2_s_no_norm_no_wrap_cb",
     "alibi_dinov2_s_no_norm_no_wrap",
@@ -45,6 +46,8 @@ ModelTypes = Literal[
     "alibi_dinov3_s+_no_norm_wrap",
     "alibi_dinov3_s+_no_norm_wrap_ms",
     "alibi_dinov3_s+_norm_wrap_ms",
+    "alibi_dinov2_s_no_ms",
+    "nope_dinov2_s_no_ms",
 ]
 
 MODEL_LIST: tuple[ModelTypes, ...] = get_args(ModelTypes)
@@ -73,6 +76,7 @@ WRAPPER_CHECKPOINTS: dict[ModelTypes, str] = {
     "alibi_dinov3_s+_no_norm_wrap": "ablations/alibi_dv3_plus_no_norm_wrap_cb.pth",
     "alibi_dinov3_s+_no_norm_wrap_ms": "ablations/alibi_dv3_plus_no_norm_wrap_cb_ms.pth",
     "alibi_dinov3_s+_norm_wrap_ms": "ablations/alibi_dv3_plus_norm_wrap_cb_ms.pth",
+    "alibi_dinov2_s_learned": "ablations/alibi_coco_dv2_vits14_reg_ms_learned.pth",
 }
 
 # 2. Name lookup mapping
@@ -81,6 +85,7 @@ MODEL_NAMES: dict[ModelTypes, str] = {
     "dinov2_s": "DINOv2",
     "dinov3_s+": "DINOv3",
     "alibi_dinov2_s": "ALiBi-Dv2",
+    "alibi_coco_dinov2_s": "ALiBi-Dv2(COCO)",
     "alibi_dinov3_s+": "ALiBi-Dv3",
     "nope_dinov2_s": "NoPE",
     "sinusoid_dinov2_s": "Sinusoid",
@@ -110,15 +115,15 @@ MODEL_NAMES: dict[ModelTypes, str] = {
     "alibi_dinov2_s_no_norm_wrap_ms": "ALiBi-Dv2(-norm,+ms)",
     "alibi_dinov3_s+_no_norm_wrap": "ALiBi-Dv3(-norm)",
     "alibi_dinov3_s+_no_norm_wrap_ms": "ALiBi-Dv3(-norm,+ms)",
-    "alibi_dinov3_s+_norm_wrap_ms": "ALiBi-Dv3(+norm,+ms)",
+    "alibi_dinov3_s+_norm_wrap_ms": "ALiBi-Dv3",
 }
 
 
 def get_model(
     model_type: ModelTypes,
-    checkpoint_path: str | None,
     device: str,
     eval: bool = True,
+    checkpoint_path: str | None = "models/checkpoints",
     conf_path: str | None = "models",
     **build_kwargs,
 ) -> PretrainedViTWrapper:
@@ -154,7 +159,7 @@ def get_models(
         rel_path = WRAPPER_CHECKPOINTS.get(model_type, None)
         checkpoint_path = f"{checkpoint_dir}/{rel_path}" if rel_path else None
         models[model_type] = get_model(
-            model_type, checkpoint_path, device, eval=eval, conf_path=conf_dir, **build_kwargs
+            model_type, device, eval=eval, checkpoint_path=checkpoint_path, conf_path=conf_dir, **build_kwargs
         )
     return models
 
@@ -256,6 +261,14 @@ register_alibi_model(
     "alibi_coco_dinov2_s",
     "dinov2_s",
     slope_type="constant",
+    n_reg_tokens=4,
+    add_cls=True,
+)
+
+register_alibi_model(
+    "alibi_dinov2_s_learned",
+    "dinov2_s",
+    slope_type="learned",
     n_reg_tokens=4,
     add_cls=True,
 )
