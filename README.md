@@ -29,7 +29,7 @@ Download the source and install the package locally:
 ```bash
 git clone https://github.com/tldr-group/dino-saw
 python -m pip install --upgrade pip
-pip install --group paper # requires pip>=25
+pip install ".[paper]"
 git clone https://github.com/facebookresearch/dinov3 models/dinov3 # required to use alibi-dv3
 ```
 Instead of `pip`, I recommend using `uv` for this: 
