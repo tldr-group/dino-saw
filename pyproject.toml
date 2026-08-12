@@ -34,7 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 paper = [
-  "interactive-seg-backend[cpu,dev]@git+https://github.com/tldr-group/interactive-seg-backend",
+  "interactive-seg-backend[gpu,dev]@git+https://github.com/tldr-group/interactive-seg-backend",
   "tifffile>=2025.3.30",
   "matplotlib>=3.10.0",
   "ipykernel"
