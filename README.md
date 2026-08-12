@@ -56,9 +56,14 @@ This won't work on windows (unless using WSL or git-cli), simply download and mo
 To get the data needed to run all the figures, you need to download and unzip the data from the [zenodo](https://zenodo.org/records/21627644) to `notebooks/paper_figures/data`. If on windows, just paste the url into your address bar and manually move and extract `data.zip` to `notebooks/paper_figures_pdf/data`. The file structure should look like `notebooks/paper_figures_pdf/data/3D_plots/, ...`.
 ```bash
 curl -L -o data.zip "https://zenodo.org/records/21627644/files/data.zip?download=1"
-unzip -q data.zip -d notebooks/paper_figures_pdf/data
+unzip -q data.zip -d notebooks/paper_figures_pdf/
 rm data.zip
 ```
+For plot outputs, create a directory 
+```bash
+mkdir notebooks/paper_figures_pdf/saved
+```
+
 Note: some of the figures rely on ablation checkpoints that aren't in the HF repo (to keep download size small). If you're interested, contact me and I'll send you the checkpoints.
 
 #### 4.

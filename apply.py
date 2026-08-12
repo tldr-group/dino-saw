@@ -5,6 +5,8 @@ from dinosaw.utils import load_image, do_2D_pca, to_numpy, closest_resize
 from PIL import Image
 import matplotlib.pyplot as plt
 
+from os import makedirs
+
 
 model = WrapperRegistry.build(
     "alibi_coco_dinov2_s",
@@ -29,4 +31,5 @@ emb_np = to_numpy(emb.squeeze(0))
 
 pca_emb = do_2D_pca(emb_np, n_components=3, post_norm="minmax")
 print(pca_emb.shape)
+makedirs("tmp", exist_ok=True)
 plt.imsave("tmp/feats.png", pca_emb)
