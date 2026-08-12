@@ -25,6 +25,7 @@ This 'retrofit via distillation' works surprisingly well, and produces a model w
 
 ## Installation
 
+#### 1.
 Download the source and install the package locally:
 ```bash
 git clone https://github.com/tldr-group/dino-saw
@@ -38,12 +39,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh # install uv
 uv sync --extra paper
 ```
 
+#### 2.
 To get the models, run `download_chkpoints.sh`, or download from the [zenodo](https://huggingface.co/rmdocherty/dino-saw) and place in `models/checkpoints/trained`:
 ```bash
 chmod +x download_chkpoints.sh
 ./download_chkpoints.sh
 ```
 
+#### 3.
 To get the data needed to run all the figures, you need to download and unzip the data from the zenodo to `notebooks/paper_figures/data`.
 ```bash
 curl -L -o data.zip "https://zenodo.org/records/21627644/files/data.zip?download=1"
