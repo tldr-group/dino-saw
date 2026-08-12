@@ -35,7 +35,12 @@ git clone https://github.com/facebookresearch/dinov3 models/dinov3 # required to
 ```
 Instead of `pip`, I recommend using `uv` for this: 
 ```
-curl -LsSf https://astral.sh/uv/install.sh | sh # install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh # install uv, ubuntu
+uv sync --extra paper
+```
+and for windows,
+```
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex
 uv sync --extra paper
 ```
 
