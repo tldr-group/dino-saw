@@ -12,8 +12,15 @@ model = WrapperRegistry.build(
     "alibi_coco_dinov2_s",
     device="cuda:0",
     checkpoint_path="models/checkpoints/trained/alibi_coco_dv2_vits14_reg4.pth",
-    model_conf_path="models/dinov3",  # this is only used for dv3 models
 )
+# to run a dinov3 model, for example, uncomment this block
+# all that's changed is the name of the model (see dinosaw.wrappers.register_models for the list) and the checkpoint path
+# model = WrapperRegistry.build(
+#     "alibi_dinov3_s+",
+#     device="cuda:0",
+#     checkpoint_path="models/checkpoints/trained/alibi_coco_dv3_vits16_reg4.pth",
+#     model_conf_path="models/dinov3",  # this is only used for dv3 models
+# )
 model.to("cuda:0")
 model.eval()
 
