@@ -2,7 +2,7 @@
 
 [![arXiv](https://img.shields.io/badge/arXiv-2603.16840-b31b1b.svg)](https://arxiv.org/abs/2603.16840)
 [![Huggingface](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-checkpoints-orange)](https://huggingface.co/rmdocherty/dino-saw)
-[![zenodo](https://img.shields.io/badge/zenodo-10.5281-blue)](https://zenodo.org/records/21627644)
+[![zenodo](https://img.shields.io/badge/zenodo-10.48550-blue)](https://zenodo.org/records/21627644)
 
 <p align="center">
     <img src="notebooks/resources/summary.jpg">
@@ -47,7 +47,7 @@ chmod +x download_chkpoints.sh
 ```
 
 #### 3.
-To get the data needed to run all the figures, you need to download and unzip the data from the [zenodo](https://zenodo.org/records/21627644) to `notebooks/paper_figures/data`.
+To get the data needed to run all the figures, you need to download and unzip the data from the [zenodo](https://zenodo.org/records/21627644) to `notebooks/paper_figures/data`. If on windows, just paste the url into your address bar and manually move and extract `data.zip` to `notebooks/paper_figures_pdf/data`
 ```bash
 curl -L -o data.zip "https://zenodo.org/records/21627644/files/data.zip?download=1"
 unzip -q data.zip -d notebooks/paper_figures_pdf/data
@@ -59,7 +59,7 @@ Note: some of the figures rely on ablation checkpoints that aren't in the HF rep
 
 We've trained a series models with this setup, all ViT-S DINO models. `_coco` refers to models trained using embeddings from the COCO-stuff (~120k images) dataset, otherwise ImageNetReduced (25k images) was used.
 
-- [alibi_dv2_vits14_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_dv2_vits14_reg4.pth.pth)
+- [alibi_dv2_vits14_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_dv2_vits14_reg4.pth)
 - [alibi_coco_dv2_vits14_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_coco_dv2_vits14_reg4.pth)
 - [nope_coco_dv2_vits14_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/nope_coco_dv2_vits14_reg4.pth)
 - [alibi_coco_dv3_vits16_plus_reg4.pth](https://huggingface.co/rmdocherty/dino-saw/blob/main/alibi_coco_dv3_vits16_plus_reg4.pth)
