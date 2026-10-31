@@ -44,6 +44,11 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uv sync --extra paper
 ```
 
+NB: for old archs (i.e pascal)
+```bash
+uv sync --extra paper --index pytorch-cu128=https://download.pytorch.org/whl/cu126
+```
+
 #### 2.
 To get the models, run `download_chkpoints.sh`, or download from [hugging face](https://huggingface.co/rmdocherty/dino-saw) and place in `models/checkpoints/trained`:
 ```bash

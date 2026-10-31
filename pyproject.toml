@@ -11,7 +11,7 @@ authors = [
 ]
 description = "ViT feature upsampling via CNNs"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.14"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -30,7 +30,7 @@ dependencies = [
   "scikit-image>=0.25.2",
   "tensorboard",
   "pytest"
-  ]
+]
 
 [project.optional-dependencies]
 paper = [
@@ -39,7 +39,6 @@ paper = [
   "matplotlib>=3.10.0",
   "ipykernel"
 ]
-
 
 [project.urls]
 "Homepage" = "https://github.com/tldr-group/dino-saw"
@@ -59,9 +58,9 @@ torchvision = [
 [[tool.uv.index]]
 name = "pypi"
 url = "https://pypi.org/simple"
-default = true          # everything else comes from PyPI
+default = true
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
-explicit = true         # only packages explicitly pinned to this index
+explicit = true
