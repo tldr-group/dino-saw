@@ -1,12 +1,11 @@
-import torch
-from PVW import WrapperRegistry
-from dinosaw.utils import load_image, do_2D_pca, to_numpy, closest_resize
-
-from PIL import Image
-import matplotlib.pyplot as plt
-
 from os import makedirs
 
+import matplotlib.pyplot as plt
+import torch
+from PIL import Image
+from PVW import WrapperRegistry
+
+from dinosaw.utils import closest_resize, do_2D_pca, load_image, to_numpy
 
 model = WrapperRegistry.build(
     "alibi_coco_dinov2_s",

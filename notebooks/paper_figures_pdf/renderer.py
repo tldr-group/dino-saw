@@ -1,15 +1,16 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Literal, TypeAlias, Optional
 
-import numpy as np
-import matplotlib.patches as mpatches
+from dataclasses import dataclass
+from typing import Literal, TypeAlias
+
 import matplotlib.colors as mcolors
-from matplotlib.figure import Figure
-from matplotlib.axes import Axes
+import matplotlib.patches as mpatches
+import numpy as np
 from matplotlib.artist import Artist
-from matplotlib.transforms import Bbox
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.text import Text
+from matplotlib.transforms import Bbox
 
 # TODO: Allow scene layout to be relative - that sets relative to thing be plotted
 #
@@ -23,7 +24,7 @@ Corner = Literal["top_left", "top_right", "bottom_left", "bottom_right"]
 RelativeTo: TypeAlias = Edge | Literal["center"] | Corner
 
 
-def _point_on_bbox(bb: Bbox, relative_to: Optional[RelativeTo]) -> tuple[float, float]:
+def _point_on_bbox(bb: Bbox, relative_to: RelativeTo | None) -> tuple[float, float]:
     if relative_to is None:
         return (bb.x0, bb.y0)
 
@@ -202,9 +203,9 @@ class ImageNode(Node):
         self,
         layout: Layout,
         image: np.ndarray,
-        vmin: Optional[float] = None,
-        vmax: Optional[float] = None,
-        cmap: Optional[str] = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        cmap: str | None = None,
     ):
         super().__init__(layout)
         self.image = image
@@ -273,11 +274,11 @@ class ArrowConnector(Node):
     def __init__(
         self,
         start_obj: Renderable | Layout,
-        end_obj: Optional[Renderable | Layout],
-        start: Optional[Connection] = None,
-        end: Optional[Connection] = None,
-        dx: Optional[float] = None,
-        dy: Optional[float] = None,
+        end_obj: Renderable | Layout | None,
+        start: Connection | None = None,
+        end: Connection | None = None,
+        dx: float | None = None,
+        dy: float | None = None,
         arrowstyle: Literal["->", "-", "<->"] = "->",
         shrinkA: float = 0,
         shrinkB: float = 0,
@@ -343,7 +344,7 @@ class ArrowConnector(Node):
             raise TypeError("Unknown layout type for bbox computation")
         return Bbox.from_bounds(x, y, w, h)
 
-    def get_loc(self, obj: Renderable | Layout, conn: Optional[Connection]) -> tuple[float, float]:
+    def get_loc(self, obj: Renderable | Layout, conn: Connection | None) -> tuple[float, float]:
         if isinstance(obj, Node):
             assert conn is not None, "Connection must be provided for Node"
             return obj.connection_point(conn)
