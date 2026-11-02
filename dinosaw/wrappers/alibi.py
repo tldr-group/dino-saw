@@ -2,7 +2,7 @@ from functools import partial
 
 import torch
 from PVW import BackboneConfig, WrapperConfig, WrapperRegistry
-from PVW.types import Dv3ViT, satisfies_protocol
+from PVW.types import Dv3StyleViT, satisfies_protocol
 from torch import nn
 
 from dinosaw.alibi_logic import (
@@ -70,7 +70,7 @@ def add_alibi(
     if param is not None:
         dm.to(device=param.device, dtype=param.dtype)
 
-    if hasattr(vit, "rope_embed") or satisfies_protocol(vit, Dv3ViT):
+    if hasattr(vit, "rope_embed") or satisfies_protocol(vit, Dv3StyleViT):
         vit = convert_dv3_model(
             vit,
             slope_type=slope_type,

@@ -107,12 +107,15 @@ def linear_probe_arr(
 
         # Predict on all features
         X_full = feats.reshape(-1, c)  # Shape: (h*w, c)
+        X_test = feats[~sample_mask, :]
+        y_test = target[~sample_mask, :]
         if scale_feats:
             assert scaler is not None
             X_full = scaler.transform(X_full)
+            X_test = scaler.transform(X_test)
         y_pred = model.predict(X_full)  # Shape: (h*w,)
-
-        score = model.score(X_full, target.reshape((h * w, -1)))  # R^2 score on training data
+    
+        score = model.score(X_test, y_test)
     except ValueError:
         y_pred = np.zeros(h * w)
         score = -1.0
