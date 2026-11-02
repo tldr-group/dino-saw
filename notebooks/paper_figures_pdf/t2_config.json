@@ -1,0 +1,50 @@
+{
+  "seed": 100002,
+  "device": "cuda:0",
+  "checkpoint_dir": "models/checkpoints",
+  "conf_dir": "models/dinov3",
+  "models": [
+    "dinov2_s",
+    "dinov2_b",
+    "cb_dinov2_s",
+    "dvt_dinov2_s",
+    "alibi_coco_dinov2_s",
+    "alibi_dinov3_s+"
+  ],
+  "datasets": [
+    {
+      "name": "micro",
+      "folder": "notebooks/paper_figures_pdf/data/linear_probe/homog_micros",
+      "replace_with_random_noise": false
+    },
+    {
+      "name": "texture",
+      "folder": "notebooks/paper_figures_pdf/data/linear_probe/texture_ds",
+      "replace_with_random_noise": false
+    },
+    {
+      "name": "noise",
+      "folder": "notebooks/paper_figures_pdf/data/linear_probe/homog_micros",
+      "replace_with_random_noise": true,
+      "noise_size": [518, 518]
+    }
+  ],
+  "ramp": "lr+ud",
+  "mask_cutoff_frac": 1.0,
+  "step": 6,
+  "random_mask": true,
+  "n_repeats": 6,
+  "regressor": "ridge",
+  "probe_by_channel": false,
+  "scale": true,
+  "run_generation": true,
+  "run_rendering": true,
+  "scores_path": "notebooks/paper_figures_pdf/saved/t2_scores.json",
+  "table_output_path": "notebooks/paper_figures_pdf/saved/t2_table.tex",
+  "show_std": false,
+  "show_supervised_col": false,
+  "use_multirow": true,
+  "red_threshold": 0.4,
+  "caption": "$(x, y)$ linear probe $R^2$ scores for DINOv2 variations. `CB' refers to zeroing the 4 most positional channels of DINOv2 (see \\cref{fig:linear_probe}). Our ALiBi model has more homogeneous features and therefore has a lower $R^2$.",
+  "label": "tab:linear_probe_ours"
+}

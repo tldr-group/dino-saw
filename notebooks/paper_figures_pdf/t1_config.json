@@ -1,0 +1,55 @@
+{
+  "seed": 100002,
+  "device": "cuda:0",
+  "checkpoint_dir": "models/checkpoints",
+  "conf_dir": "models/dinov3",
+  "models": [
+    "dino_s",
+    "dino_b",
+    "dinov2_s",
+    "dinov2_b",
+    "dinov3_s+",
+    "mae_b",
+    "sam_b",
+    "in1k_b",
+    "deit_s",
+    "clip_b",
+    "eva02_b"
+  ],
+  "datasets": [
+    {
+      "name": "micro",
+      "folder": "notebooks/paper_figures_pdf/data/linear_probe/homog_micros",
+      "replace_with_random_noise": false
+    },
+    {
+      "name": "texture",
+      "folder": "notebooks/paper_figures_pdf/data/linear_probe/texture_ds",
+      "replace_with_random_noise": false
+    },
+    {
+      "name": "noise",
+      "folder": "notebooks/paper_figures_pdf/data/linear_probe/homog_micros",
+      "replace_with_random_noise": true,
+      "noise_size": [518, 518]
+    }
+  ],
+  "ramp": "lr+ud",
+  "mask_cutoff_frac": 1.0,
+  "step": 6,
+  "random_mask": true,
+  "n_repeats": 6,
+  "regressor": "ridge",
+  "probe_by_channel": false,
+  "scale": true,
+  "run_generation": true,
+  "run_rendering": true,
+  "scores_path": "notebooks/paper_figures_pdf/saved/t1_scores.json",
+  "table_output_path": "notebooks/paper_figures_pdf/saved/t1_table.tex",
+  "show_std": false,
+  "show_supervised_col": true,
+  "use_multirow": true,
+  "red_threshold": 0.4,
+  "caption": "$(x, y)$ linear probe $R^2$ scores for a set of existing models which produce patch-level features. Supervised models - including those with an SSL backbone - have lower $R^2$ scores. Scores are reported per-dataset: `micro' for micrographs, `texture' for DTD \\cite{DTD} texture images and `noise' for random noise.",
+  "label": "tab:linear_probe_literature"
+}
