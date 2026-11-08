@@ -56,47 +56,55 @@ def get_distance_matrix(
     normalize: bool = True,
     wrap: bool = False,
     add_cls: bool = True,
-    device: str = "cpu",
+    device: str | torch.device = "cpu",
     dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
-    coords = torch.stack(
-        torch.meshgrid(
-            torch.arange(n_tokens_h, device=device, dtype=dtype),
-            torch.arange(n_tokens_w, device=device, dtype=dtype),
-            indexing="ij",
-        ),
-        dim=-1,
-    ).reshape(-1, 2)  # (N, 2)
-    diff = coords.unsqueeze(1) - coords.unsqueeze(0)
-    diff = diff.abs()
+    n_extra_tokens = int(add_cls) + n_reg_tokens
+    n_total = n_extra_tokens + n_tokens_h * n_tokens_w
+    # Pad row stride to a multiple of 8 floats (32 bytes) so PyTorch's SDPA (fmha Cutlass)
+    # can consume a (1, 1, N, N) view directly without allocating an aligned copy.
+    n_pad = ((n_total + 7) // 8) * 8
+
+    buf = torch.zeros((n_total, n_pad), device=device, dtype=dtype)
+    D = buf[:, :n_total]
+    D_patch = D[n_extra_tokens:, n_extra_tokens:]
+    D_4d = D_patch.view(n_tokens_h, n_tokens_w, n_tokens_h, n_tokens_w)
+
+    gh = torch.arange(n_tokens_h, device=device, dtype=dtype)
+    gw = torch.arange(n_tokens_w, device=device, dtype=dtype)
+    dy = (gh[:, None] - gh[None, :]).abs_()
+    dx = (gw[:, None] - gw[None, :]).abs_()
 
     if wrap:
-        diff[..., 0] = torch.minimum(diff[..., 0], n_tokens_h - diff[..., 0])
-        diff[..., 1] = torch.minimum(diff[..., 1], n_tokens_w - diff[..., 1])
+        torch.minimum(dy, n_tokens_h - dy, out=dy)
+        torch.minimum(dx, n_tokens_w - dx, out=dx)
 
     if metric == "euclidean":
-        D = torch.sqrt((diff**2).sum(-1))
+        dy.square_()
+        dx.square_()
+        D_4d.copy_(dy[:, None, :, None])
+        D_4d.add_(dx[None, :, None, :])
+        D_patch.sqrt_()
     elif metric == "manhattan":
-        D = diff.sum(-1)
+        D_4d.copy_(dy[:, None, :, None])
+        D_4d.add_(dx[None, :, None, :])
     else:
         raise ValueError("metric must be 'euclidean' or 'manhattan'")
 
     if normalize:
-        D /= D.max()
-    D *= -1
+        max_val = buf.max()
+        if max_val > 0:
+            D_patch.div_(max_val)
+    D_patch.mul_(-1)
 
-    n_extra_tokens = int(add_cls) + n_reg_tokens
-    # timm prepends [CLS] + [REG]
-    D = F.pad(D, (n_extra_tokens, 0, n_extra_tokens, 0), mode="constant")
-
-    return D.to(device=device, dtype=dtype)
+    return D
 
 
 AlibiSlopeType = Literal["fixed", "learned", "constant"]
 
 
 def get_alibi_slope(
-    num_heads: int, slope_type: AlibiSlopeType = "constant", device: str = "cpu"
+    num_heads: int, slope_type: AlibiSlopeType = "constant", device: str | torch.device = "cpu"
 ) -> torch.Tensor | nn.Parameter:
     m: torch.Tensor | nn.Parameter
     match slope_type:
@@ -106,9 +114,9 @@ def get_alibi_slope(
         case "learned":
             m = torch.rand(num_heads, device=device)
         case "constant":
-            m = torch.ones(num_heads, device=device)
+            m = torch.ones(1, device=device)
         case _:
-            raise ValueError(f"Unknown slope type {type}")
+            raise ValueError(f"Unknown slope type {slope_type}")
 
     m = m.unsqueeze(-1).unsqueeze(-1)
     if slope_type == "learned":
@@ -149,6 +157,17 @@ class DistanceMatrixWrapper(nn.Module):
             add_cls=add_cls,
             force_update=True,
         )
+
+    def _apply(self, fn):
+        super()._apply(fn)
+        if hasattr(self, "matrix") and self.matrix is not None:
+            n_total = self.matrix.shape[0]
+            n_pad = ((n_total + 7) // 8) * 8
+            if self.matrix.stride(0) != n_pad:
+                buf = torch.zeros((n_total, n_pad), device=self.matrix.device, dtype=self.matrix.dtype)
+                buf[:, :n_total].copy_(self.matrix)
+                self.matrix = buf[:, :n_total]
+        return self
 
     def update(
         self,
@@ -219,6 +238,7 @@ class AlibiSelfAttention(DV3SelfAttention):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.slope_type: AlibiSlopeType = slope_type
         m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
         if isinstance(m, torch.nn.Parameter):
             self.register_parameter("m", m)
@@ -242,10 +262,11 @@ class AlibiSelfAttention(DV3SelfAttention):
         attn = q @ k.transpose(-2, -1)
 
         if self.distance_matrix is not None:
-            bias = self.m * self.distance_matrix.matrix
-            bias = bias.unsqueeze(0)
-
-            attn = attn + bias.to(attn.dtype)
+            dm = self.distance_matrix.matrix.to(attn.dtype)
+            if self.slope_type == "constant":
+                attn.add_(dm)
+            else:
+                attn.addcmul_(self.m.to(attn.dtype), dm)
 
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
@@ -345,8 +366,8 @@ class AlibiAttention(Attention):
             norm_layer=norm_layer,
         )
         self.distance_matrix = distance_matrix
-        self.fused_attn = False
-        self.set_alibi_slope(slope_type=slope_type)
+        self.fused_attn = True
+        self.slope_type: AlibiSlopeType = slope_type
 
         self.n_tokens_h = 16
         self.n_tokens_w = 16
@@ -355,6 +376,7 @@ class AlibiAttention(Attention):
         self.set_alibi_slope(slope_type)
 
     def set_alibi_slope(self, slope_type: AlibiSlopeType):
+        self.slope_type = slope_type
         m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)
 
         if isinstance(m, nn.Parameter):
@@ -372,14 +394,18 @@ class AlibiAttention(Attention):
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
 
-        bias = self.m * self.distance_matrix.matrix
-        bias = bias.unsqueeze(0)
-
-        if self.jitter_mag > 0.0:
-            jitter = torch.randn_like(bias) * self.jitter_mag
-            bias += jitter
+        dm = self.distance_matrix.matrix
 
         if self.fused_attn:
+            if self.jitter_mag == 0.0 and self.slope_type == "constant":
+                # Zero-copy (1, 1, N, N) view; broadcasts across batch and head dims
+                bias = dm.unsqueeze(0).unsqueeze(0)
+            else:
+                m = self.m.expand(self.num_heads, -1, -1) if self.jitter_mag > 0.0 else self.m
+                bias = (m * dm).unsqueeze(0)
+                if self.jitter_mag > 0.0:
+                    bias.add_(torch.randn_like(bias), alpha=self.jitter_mag)
+
             x = F.scaled_dot_product_attention(
                 q, k, v, dropout_p=self.attn_drop.p if self.training else 0.0, attn_mask=bias
             )
@@ -387,7 +413,14 @@ class AlibiAttention(Attention):
             q = q * self.scale
             attn = q @ k.transpose(-2, -1)
 
-            attn = attn + bias
+            if self.jitter_mag > 0.0:
+                bias = (self.m.expand(self.num_heads, -1, -1) * dm).unsqueeze(0)
+                bias.add_(torch.randn_like(bias), alpha=self.jitter_mag)
+                attn.add_(bias)
+            elif self.slope_type == "constant":
+                attn.add_(dm)
+            else:
+                attn.addcmul_(self.m, dm)
 
             attn = attn.softmax(dim=-1)
             attn = self.attn_drop(attn)
